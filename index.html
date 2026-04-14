@@ -1,0 +1,1778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Secondslide Operations Report</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { sans: ['DM Sans', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+      colors: {
+        navy: { 50: '#f0f4f8', 100: '#d9e2ec', 200: '#b6c6d9', 300: '#8da4bf', 400: '#6182a5', 500: '#3e6189', 600: '#1a3a5c', 700: '#122844', 800: '#0b1a2e', 900: '#060f1a' },
+        flame: { 50: '#fff4f0', 100: '#ffe4d9', 200: '#ffc4ad', 300: '#ff9e7a', 400: '#f06030', 500: '#e8531d', 600: '#c44316', 700: '#9c3411', 800: '#74270d', 900: '#4d1a09' },
+        cyan: { 400: '#33d4ff', 500: '#00C8FF', 600: '#00a3d1' },
+      }
+    }
+  }
+};
+</script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'DM Sans', system-ui, sans-serif; background: #f8fafc; margin: 0; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(26,58,92,.25); border-radius: 3px; }
+
+  /* ── Auth gate ─────────────────────────────────────────── */
+  #auth-gate {
+    position: fixed; inset: 0; z-index: 9999;
+    background: linear-gradient(135deg, #0b1a2e 0%, #1a3a5c 50%, #122844 100%);
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity .4s ease, visibility .4s ease;
+  }
+  #auth-gate.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  .auth-card {
+    background: rgba(255,255,255,.06); backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,.1); border-radius: 16px;
+    padding: 48px; width: 400px; max-width: 90vw; text-align: center;
+  }
+  .auth-card input {
+    width: 100%; padding: 14px 18px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08);
+    color: #fff; font-size: 15px; outline: none; transition: border-color .2s;
+  }
+  .auth-card input:focus { border-color: #00C8FF; }
+  .auth-card input::placeholder { color: rgba(255,255,255,.4); }
+  .auth-btn {
+    width: 100%; padding: 14px; border-radius: 10px; border: none;
+    background: linear-gradient(135deg, #00C8FF, #0099cc); color: #fff;
+    font-weight: 600; font-size: 15px; cursor: pointer; margin-top: 16px;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .auth-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,200,255,.3); }
+  .auth-btn:active { transform: translateY(0); }
+  .auth-error { color: #ff6b6b; font-size: 13px; margin-top: 12px; min-height: 20px; }
+
+  /* ── Layout ────────────────────────────────────────────── */
+  .app-shell { display: flex; height: 100vh; opacity: 0; transition: opacity .4s ease; }
+  .app-shell.visible { opacity: 1; }
+
+  .sidebar {
+    width: 220px; min-width: 220px; background: #0b1a2e;
+    display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,.06);
+    overflow-y: auto;
+  }
+  .sidebar-brand {
+    padding: 24px 20px 20px; border-bottom: 1px solid rgba(255,255,255,.08);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .sidebar-brand-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, #00C8FF, #0099cc);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #fff; font-size: 14px;
+  }
+  .sidebar-brand-text { color: #fff; font-weight: 600; font-size: 15px; line-height: 1.2; }
+  .sidebar-brand-sub { color: rgba(255,255,255,.45); font-size: 11px; font-weight: 400; }
+
+  .sidebar-nav { padding: 16px 12px; flex: 1; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 8px; cursor: pointer;
+    color: rgba(255,255,255,.55); font-size: 13.5px; font-weight: 500;
+    transition: all .15s; margin-bottom: 2px; position: relative;
+  }
+  .nav-item:hover { color: rgba(255,255,255,.85); background: rgba(255,255,255,.06); }
+  .nav-item.active {
+    color: #fff; background: rgba(0,200,255,.12);
+  }
+  .nav-item.active::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 20px; border-radius: 0 3px 3px 0; background: #00C8FF;
+  }
+  .nav-icon { width: 18px; height: 18px; opacity: .7; flex-shrink: 0; }
+  .nav-item.active .nav-icon { opacity: 1; }
+
+  .sidebar-footer {
+    padding: 16px 20px; border-top: 1px solid rgba(255,255,255,.08);
+    color: rgba(255,255,255,.3); font-size: 11px;
+  }
+
+  .main-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+  .top-bar {
+    background: #fff; border-bottom: 1px solid #e2e8f0;
+    padding: 16px 32px; display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 50;
+  }
+  .top-bar-title { font-size: 20px; font-weight: 700; color: #1a3a5c; }
+  .top-bar-controls { display: flex; align-items: center; gap: 12px; }
+
+  .date-select {
+    padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0;
+    font-size: 13px; font-family: inherit; background: #fff; color: #334155;
+    cursor: pointer; outline: none;
+  }
+  .date-select:focus { border-color: #00C8FF; box-shadow: 0 0 0 3px rgba(0,200,255,.1); }
+  .date-input {
+    padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0;
+    font-size: 13px; font-family: inherit; color: #334155; outline: none;
+  }
+  .date-input:focus { border-color: #00C8FF; }
+
+  .refresh-btn {
+    padding: 8px 16px; border-radius: 8px; border: 1px solid #e2e8f0;
+    background: #fff; color: #64748b; font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; transition: all .15s;
+  }
+  .refresh-btn:hover { border-color: #00C8FF; color: #00C8FF; }
+  .refresh-btn.spinning svg { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .content-area { padding: 24px 32px 48px; flex: 1; }
+
+  /* ── Cards & Metrics ───────────────────────────────────── */
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .metric-card {
+    background: #fff; border-radius: 12px; padding: 20px 24px;
+    border: 1px solid #e2e8f0; position: relative; overflow: hidden;
+    transition: box-shadow .2s, transform .2s;
+  }
+  .metric-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.06); transform: translateY(-1px); }
+  .metric-label { font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+  .metric-value { font-size: 28px; font-weight: 700; color: #1e293b; line-height: 1.1; }
+  .metric-value.small { font-size: 22px; }
+  .metric-sub { font-size: 12px; color: #94a3b8; margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+  .metric-sub .up { color: #059669; }
+  .metric-sub .down { color: #dc2626; }
+  .metric-accent { position: absolute; top: 0; right: 0; width: 60px; height: 60px; border-radius: 0 12px 0 60px; opacity: .08; }
+
+  .chart-card {
+    background: #fff; border-radius: 12px; padding: 24px;
+    border: 1px solid #e2e8f0; margin-bottom: 20px;
+  }
+  .chart-title { font-size: 15px; font-weight: 600; color: #334155; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+  .chart-badge { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 20px; }
+
+  /* ── Tables ────────────────────────────────────────────── */
+  .data-table-wrap {
+    background: #fff; border-radius: 12px; border: 1px solid #e2e8f0;
+    overflow: hidden; margin-bottom: 20px;
+  }
+  .data-table-header {
+    padding: 16px 24px; border-bottom: 1px solid #f1f5f9;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .data-table-title { font-size: 15px; font-weight: 600; color: #334155; }
+  .data-table-count { font-size: 12px; color: #94a3b8; background: #f1f5f9; padding: 2px 10px; border-radius: 20px; }
+
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table thead th {
+    padding: 10px 16px; text-align: left; font-weight: 600; color: #64748b;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    background: #f8fafc; border-bottom: 1px solid #e2e8f0; white-space: nowrap;
+    cursor: pointer; user-select: none;
+  }
+  .data-table thead th:hover { color: #1a3a5c; }
+  .data-table thead th .sort-arrow { opacity: .3; margin-left: 4px; }
+  .data-table thead th.sorted .sort-arrow { opacity: 1; color: #00C8FF; }
+  .data-table tbody td {
+    padding: 10px 16px; border-bottom: 1px solid #f1f5f9; color: #334155;
+    white-space: nowrap;
+  }
+  .data-table tbody tr:hover { background: #f8fafc; }
+  .data-table tbody tr:last-child td { border-bottom: none; }
+
+  /* ── Status pills ──────────────────────────────────────── */
+  .pill {
+    display: inline-flex; align-items: center; padding: 3px 10px;
+    border-radius: 20px; font-size: 11px; font-weight: 600;
+  }
+  .pill-blue { background: #eff6ff; color: #2563eb; }
+  .pill-green { background: #f0fdf4; color: #16a34a; }
+  .pill-amber { background: #fffbeb; color: #d97706; }
+  .pill-red { background: #fef2f2; color: #dc2626; }
+  .pill-purple { background: #faf5ff; color: #9333ea; }
+  .pill-gray { background: #f1f5f9; color: #64748b; }
+  .pill-cyan { background: #ecfeff; color: #0891b2; }
+
+  /* ── Tab panels ────────────────────────────────────────── */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; animation: fadeUp .3s ease; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── Loading ───────────────────────────────────────────── */
+  .loading-overlay {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 80px 0; color: #94a3b8;
+  }
+  .loading-spinner {
+    width: 40px; height: 40px; border: 3px solid #e2e8f0;
+    border-top-color: #00C8FF; border-radius: 50%;
+    animation: spin .8s linear infinite; margin-bottom: 16px;
+  }
+  .loading-text { font-size: 13px; font-weight: 500; }
+
+  /* ── Progress bar ──────────────────────────────────────── */
+  .progress-bar-wrap { height: 3px; background: #e2e8f0; border-radius: 3px; overflow: hidden; margin-bottom: 20px; }
+  .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #00C8FF, #0099cc); border-radius: 3px; transition: width .3s ease; width: 0; }
+
+  /* ── Empty state ───────────────────────────────────────── */
+  .empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; }
+  .empty-state-icon { font-size: 48px; margin-bottom: 12px; opacity: .4; }
+  .empty-state-text { font-size: 14px; }
+
+  /* ── Two-column grid ───────────────────────────────────── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 1100px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  /* ── Aging buckets ─────────────────────────────────────── */
+  .aging-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 8px 0 4px; }
+  .aging-segment { transition: width .4s ease; min-width: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     AUTH GATE
+     ═══════════════════════════════════════════════════════════ -->
+<div id="auth-gate">
+  <div class="auth-card">
+    <div style="margin-bottom:28px">
+      <div style="display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#00C8FF,#0099cc);margin-bottom:16px">
+        <svg width="24" height="24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <h1 style="color:#fff;font-size:22px;font-weight:700;margin:0 0 6px">Operations Report</h1>
+      <p style="color:rgba(255,255,255,.45);font-size:13px;margin:0">Secondslide Internal Dashboard</p>
+    </div>
+    <form id="auth-form" onsubmit="return handleAuth(event)">
+      <input type="password" id="auth-input" placeholder="Enter password" autocomplete="off" autofocus>
+      <button type="submit" class="auth-btn">Unlock Dashboard</button>
+    </form>
+    <div id="auth-error" class="auth-error"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     APP SHELL
+     ═══════════════════════════════════════════════════════════ -->
+<div class="app-shell" id="app-shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-icon">SS</div>
+      <div>
+        <div class="sidebar-brand-text">Secondslide</div>
+        <div class="sidebar-brand-sub">Operations Report</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-tab="summary" onclick="switchTab('summary')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Executive Summary
+      </div>
+      <div class="nav-item" data-tab="revenue" onclick="switchTab('revenue')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        Revenue
+      </div>
+      <div class="nav-item" data-tab="bids" onclick="switchTab('bids')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Bids
+      </div>
+      <div class="nav-item" data-tab="ledger" onclick="switchTab('ledger')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Ledger Hygiene
+      </div>
+      <div class="nav-item" data-tab="registration" onclick="switchTab('registration')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        Registration
+      </div>
+      <div class="nav-item" data-tab="receivables" onclick="switchTab('receivables')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        Receivables
+      </div>
+      <div style="height:1px;background:rgba(255,255,255,.08);margin:16px 0"></div>
+      <div class="nav-item" data-tab="cashflow" onclick="switchTab('cashflow')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Cash Flow
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      Last refreshed: <span id="last-refresh">--</span>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main-content">
+    <div class="top-bar">
+      <div class="top-bar-title" id="page-title">Executive Summary</div>
+      <div class="top-bar-controls">
+        <select class="date-select" id="date-preset" onchange="handlePresetChange()">
+          <option value="mtd">Month to Date</option>
+          <option value="qtd">Quarter to Date</option>
+          <option value="ytd" selected>Year to Date</option>
+          <option value="last30">Last 30 Days</option>
+          <option value="last90">Last 90 Days</option>
+          <option value="2025">Full Year 2025</option>
+          <option value="custom">Custom Range</option>
+        </select>
+        <input type="date" class="date-input" id="date-start" style="display:none" onchange="handleCustomDate()">
+        <input type="date" class="date-input" id="date-end" style="display:none" onchange="handleCustomDate()">
+        <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+    <div id="progress-wrap" class="progress-bar-wrap" style="display:none;margin:0"><div id="progress-bar" class="progress-bar-fill"></div></div>
+
+    <div class="content-area">
+
+      <!-- ── Executive Summary ──────────────────────────── -->
+      <div class="tab-panel active" id="panel-summary">
+        <div id="summary-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading dashboard data...</div></div>
+        <div id="summary-content" style="display:none">
+          <div class="metric-grid" id="summary-metrics"></div>
+          <div class="grid-2">
+            <div class="chart-card"><div class="chart-title">Revenue Trend (Monthly)</div><canvas id="chart-summary-revenue"></canvas></div>
+            <div class="chart-card"><div class="chart-title">Bid Pipeline by Status</div><canvas id="chart-summary-pipeline"></canvas></div>
+          </div>
+          <div class="grid-2">
+            <div class="chart-card"><div class="chart-title">Receivables Aging</div><canvas id="chart-summary-aging"></canvas></div>
+            <div class="chart-card"><div class="chart-title">Revenue by Store</div><canvas id="chart-summary-store"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Revenue ────────────────────────────────────── -->
+      <div class="tab-panel" id="panel-revenue">
+        <div id="revenue-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading revenue data...</div></div>
+        <div id="revenue-content" style="display:none">
+          <div class="metric-grid" id="revenue-metrics"></div>
+          <div class="chart-card"><div class="chart-title">Monthly Revenue <span id="revenue-chart-badge" class="chart-badge pill-cyan"></span></div><canvas id="chart-revenue-monthly"></canvas></div>
+          <div class="grid-2">
+            <div class="chart-card"><div class="chart-title">Revenue by Store</div><canvas id="chart-revenue-store"></canvas></div>
+            <div class="chart-card"><div class="chart-title">New Account Revenue (2026 by Quarter)</div><canvas id="chart-revenue-new-accounts"></canvas></div>
+          </div>
+          <div id="revenue-table-wrap"></div>
+        </div>
+      </div>
+
+      <!-- ── Bids ───────────────────────────────────────── -->
+      <div class="tab-panel" id="panel-bids">
+        <div id="bids-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading bid data...</div></div>
+        <div id="bids-content" style="display:none">
+          <div class="metric-grid" id="bids-metrics"></div>
+          <div class="grid-2">
+            <div class="chart-card"><div class="chart-title">Bids by Status</div><canvas id="chart-bids-status"></canvas></div>
+            <div class="chart-card"><div class="chart-title">Average Time in Status (Hours)</div><canvas id="chart-bids-time"></canvas></div>
+          </div>
+          <div class="grid-2">
+            <div class="chart-card"><div class="chart-title">Bid Volume Trend (Monthly)</div><canvas id="chart-bids-trend"></canvas></div>
+            <div class="chart-card"><div class="chart-title">Bids by Account Owner</div><canvas id="chart-bids-owner"></canvas></div>
+          </div>
+          <div id="bids-fulfillment-wrap"></div>
+          <div id="bids-table-wrap"></div>
+        </div>
+      </div>
+
+      <!-- ── Ledger Hygiene ─────────────────────────────── -->
+      <div class="tab-panel" id="panel-ledger">
+        <div id="ledger-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading ledger data...</div></div>
+        <div id="ledger-content" style="display:none">
+          <div class="metric-grid" id="ledger-metrics"></div>
+          <div class="grid-2">
+            <div class="chart-card"><div class="chart-title">Actualization by Vendor</div><canvas id="chart-ledger-vendor"></canvas></div>
+            <div class="chart-card"><div class="chart-title">Cost Coverage Trend</div><canvas id="chart-ledger-trend"></canvas></div>
+          </div>
+          <div id="ledger-vendor-table-wrap"></div>
+          <div id="ledger-missing-table-wrap"></div>
+        </div>
+      </div>
+
+      <!-- ── Registration ───────────────────────────────── -->
+      <div class="tab-panel" id="panel-registration">
+        <div id="registration-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading registration data...</div></div>
+        <div id="registration-content" style="display:none">
+          <div class="metric-grid" id="registration-metrics"></div>
+          <div class="chart-card"><div class="chart-title">Registration Revenue (Monthly)</div><canvas id="chart-registration-monthly"></canvas></div>
+          <div id="registration-table-wrap"></div>
+        </div>
+      </div>
+
+      <!-- ── Receivables ────────────────────────────────── -->
+      <div class="tab-panel" id="panel-receivables">
+        <div id="receivables-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading receivables data...</div></div>
+        <div id="receivables-content" style="display:none">
+          <div class="metric-grid" id="receivables-metrics"></div>
+          <div class="grid-2">
+            <div class="chart-card"><div class="chart-title">Aging Distribution</div><canvas id="chart-receivables-aging"></canvas></div>
+            <div class="chart-card"><div class="chart-title">Receivables by Account Owner</div><canvas id="chart-receivables-owner"></canvas></div>
+          </div>
+          <div id="receivables-table-wrap"></div>
+        </div>
+      </div>
+
+      <!-- ── Cash Flow ──────────────────────────────────── -->
+      <div class="tab-panel" id="panel-cashflow">
+        <div id="cashflow-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading cash flow data...</div></div>
+        <div id="cashflow-content" style="display:none">
+          <div class="metric-grid" id="cashflow-metrics"></div>
+          <div class="grid-2">
+            <div class="chart-card"><div class="chart-title">AR vs AP (Monthly)</div><canvas id="chart-cashflow-arap"></canvas></div>
+            <div class="chart-card"><div class="chart-title">Net Cash Position</div><canvas id="chart-cashflow-net"></canvas></div>
+          </div>
+          <div id="cashflow-table-wrap"></div>
+        </div>
+      </div>
+
+    </div><!-- content-area -->
+  </div><!-- main-content -->
+</div><!-- app-shell -->
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   CONFIGURATION & AUTH
+   ═══════════════════════════════════════════════════════════════ */
+const ENCRYPTED_KEY = 'pC93AbGI5HkOVU6fwC0Sd2fU+ZdPYWfWI0CElb78RBd92zUS5A5Wt08ED9TIFp/iID6ZuzvrOiNkBVT/eMJykw5Croc9Sbvyd8MiZ9/OAUtBZ9vA857W00ixmm5RYL5Zwk0xSkfDrd1qh3wnRwWGUrVrARjWqQocFw3CWXkO';
+
+const AT_BASE = 'https://api.airtable.com/v0';
+const TO_BASE = 'appNQwRzxu0k5F884';
+const SL_BASE = 'appuU2BRGbpZBOsvO';
+
+// Table IDs
+const T_BIDS = 'tbl2zsDdKOqUO2vEc';
+const T_BID_REQUESTS = 'tbl1b72sZVkVwVECH';
+const T_BLI = 'tblHDebTfj100FMUc';
+const T_PO = 'tblflagJXXbubciYT';
+const T_INVR = 'tbl92Vx06gJqmHUx7';
+const T_INVP = 'tblx0RaZAEneU9oSv';
+const T_SL_ORDERS = 'tblsePqVlmkXvAtqO';
+const T_SL_OI = 'tblW6TnT71Jzo9seM';
+const T_SL_SO = 'tbllRxasnZcbcCHTU';
+const T_SL_SOI = 'tblsHYsnxjXQXyO8E';
+const T_SL_STORES = 'tblLSKpHKh85xZg4f';
+
+// Field IDs — Orders
+const F_ORD_LABEL = 'fldag6bqdLqCGZdi6';
+const F_ORD_DOMAIN = 'fldF4wK1dOpJmMkIK';
+const F_ORD_TS = 'fld8yhpSOCZSUyURw';
+const F_ORD_TOTAL = 'fldM0sAKvrhIef8sp';
+const F_ORD_NET = 'fldHTAauUpTF7bfrJ';
+const F_ORD_REFUND = 'fldtPp2TNQU4s2HAK';
+const F_ORD_GROSS = 'fldaI4AjUFNnxAtI1';
+const F_ORD_TEAM_COGS = 'fld48BhMno9uYPvBa';
+const F_ORD_SS_PROFIT = 'fldpKadFu0N8HXkIY';
+const F_ORD_TEAM_PROFIT = 'fldZnjBmF7P2iGwun';
+const F_ORD_MASTER_STORES = 'fldhv87HLT4peEAAA';
+
+// Field IDs — Stores (SL)
+const F_STORE_ID = 'fld8oW65MY82Lau3A';
+const F_STORE_NAME = 'fldfplmEiO6Z1wDUJ';
+const F_STORE_ACCOUNT = 'fld36HUgp0mHqeVUD';
+const F_STORE_CREATED = 'fldN2r6kuV7LVJarS';
+const F_STORE_OWNER = 'fld22r7pQYjEDefTp';
+const F_STORE_TYPE = 'fldOJykrBeefIzpYA';
+
+// Field IDs — Bids
+const F_BID_ID = 'fld2Pea4iwEZm9AG2';
+const F_BID_STATUS = 'fldgjB4z0xV2tnI36';
+const F_BID_DETAIL_STATUS = 'fld8h3wxL1x6GrTZr';
+const F_BID_CREATED = 'fldwEpMC1YImHh5h8';
+const F_BID_COMPLETE_DATE = 'fldBAyPJFIYecQy8b';
+const F_BID_ACCOUNT = 'fldSazl54p5gP0MXO';
+const F_BID_ACCOUNT_OWNER = 'fldvN1Uij82Po7wZe';
+const F_BID_ACCOUNT_TYPE = 'fldxpTHXscSw9reT0';
+const F_BID_LINE_ITEMS = 'fldxEAUJNDaFM6WEM';
+const F_BID_INVR = 'flduV5SYt2cVDBr1M';
+const F_BID_INVP = 'fld5quXNVk5FlfQ6x';
+const F_BID_PO = 'fld3uUeHLG0FQVFrW';
+const F_BID_POPUP = 'fldYmOdgf4MWcDiFu';
+
+// Field IDs — Bid Requests (timing)
+const F_BR_CREATED = 'fldXlRRuABZ3TLt3R';
+const F_BR_MIN_SUBMITTED = 'fld1A0uOkIK7uwkl0';
+const F_BR_MIN_PENDING_CS = 'fldCCZ18m73aZP63T';
+const F_BR_MIN_PENDING_SE = 'fld8DOapgyLiHEUW8';
+const F_BR_MIN_IN_PROGRESS = 'fldEYgLF5aLMHu4Dd';
+const F_BR_MIN_BID_CREATED = 'fldM3C8vixQ7tU8dW';
+const F_BR_MIN_OPEN = 'fldW0S6o4QQPrlMRb';
+const F_BR_MIN_READY_FULFILL = 'fldvYZ5rO1m7I74Iw';
+const F_BR_MIN_FULFILLED = 'fld91FGq1chNxL5BY';
+const F_BR_MIN_FLAGGED = 'fldNwUktpGwl2oxIj';
+const F_BR_STATUS = 'fldysyeG2sOPb7gXQ';
+const F_BR_SE_STATUS = 'fldgjuw45BMRIZ3s2';
+const F_BR_ACCOUNT_NAME = 'fld0LHAYBaOVKVRl0';
+const F_BR_ACCOUNT_OWNER = 'fldnofQrAIOVQVcyG';
+
+// Field IDs — BLI
+const F_BLI_QTY = 'fldTPwitoknp24GnY';
+const F_BLI_PRICE = 'fld9imTgKxQIRAmvt';
+const F_BLI_TRACKING_STATUS = 'fldORTSOZjHaCVQ0u';
+const F_BLI_BID_STATUS = 'fldp64lxXrHsWbtzf';
+
+// Field IDs — INVR
+const F_INVR_ID = 'fld67NBbuiZYaYN7y';
+const F_INVR_STATUS = 'fldBwxCEJFLWjzFgB';
+const F_INVR_AMOUNT_DUE = 'fldFBSEt4m5Qav07X';
+const F_INVR_AMOUNT_PAID = 'fldmronlYODDlUkGY';
+const F_INVR_DUE_DATE = 'fldkwaT6d5MXTruVF';
+const F_INVR_PAID_DATE = 'fldohVUmKQTzyJICd';
+const F_INVR_CREATED = 'fldMpfYr1jrTvtWU5';
+const F_INVR_ACCOUNT = 'fldL5yc8Rzr0Jjxzx';
+const F_INVR_ACCOUNT_OWNER = 'fldJH8K3HYqhqnT4k';
+const F_INVR_STORE_ID = 'fld1SKqTrxMVChKrp';
+const F_INVR_BIDS = 'fld6Ma2ZyunIWrN1X';
+
+// Field IDs — INVP
+const F_INVP_ID = 'fldu5JeaYGDMIqhsW';
+const F_INVP_STATUS = 'fldZutfDd3pKR19BZ';
+const F_INVP_AMOUNT = 'fld3zOhsyKJEIXusl';
+const F_INVP_DUE_DATE = 'fldIu6w5HtqLrTYg3';
+const F_INVP_PAID_DATE = 'fldMfRxleexn6bcXB';
+const F_INVP_VENDOR = 'fldU2ECKTNsKytUyW';
+
+// Field IDs — Supplier Orders
+const F_SO_SUPPLIER = 'fld0jWnJ9oyBeuNCs';
+const F_SO_ACTUALS_ADDED = 'fld7BChvKV1PDId8x';
+const F_SO_ACTUAL_COGS = 'fldbqILYLBc5rtdYe';
+const F_SO_ACTUAL_SHIP = 'fldxytp0GqStxrMkU';
+const F_SO_CREATED = 'fldFIoSjXTtsYef5i';
+const F_SO_SOI = 'fldZn42elfPXJUgra';
+const F_SO_OI = 'fldBTniGanMfCdvSW';
+
+// Field IDs — Supplier Order Items
+const F_SOI_ACTUAL_COST = 'fldMiqVBhEB1USlHB';
+const F_SOI_SUPPLIER = 'flddTp6lfbNYui40d';
+const F_SOI_OI = 'fldOr4pv4KLrHmKDP';
+const F_SOI_CREATED = 'fldFWRXyFalz8xefz';
+
+// Field IDs — Order Items (SL)
+const F_OI_REG = 'fld5MibqiBjjWNySN';
+const F_OI_STATUS = 'fldC1FKEQLDYaoPQv';
+const F_OI_TEAM_PRICE = 'fldQ6ErTI5NsAvE0y';
+const F_OI_RETAIL_PRICE = 'fld8HctoV64FCdXJp';
+const F_OI_QTY = 'fldFAyoU9G6BCRDku';
+const F_OI_TITLE = 'fldSIH1rlcGBAaMbn';
+const F_OI_CREATED = 'fldnOEtoENrZ5yygS';
+const F_OI_ORDERS = 'fldNwrr7S4Bg1RX4X';
+const F_OI_SOI = 'fldNbhcZVN3BODDO0';
+const F_OI_OW = 'fldGoqg9CRDBG5ndr';
+
+let API_KEY = '';
+let currentTab = 'summary';
+const dataCache = {};
+const charts = {};
+
+/* ─── Crypto ────────────────────────────────────────────── */
+async function decryptApiKey(password) {
+  try {
+    const raw = Uint8Array.from(atob(ENCRYPTED_KEY), c => c.charCodeAt(0));
+    const salt = raw.slice(0, 16);
+    const iv = raw.slice(16, 28);
+    const ct = raw.slice(28);
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+    return new TextDecoder().decode(decrypted);
+  } catch { return null; }
+}
+
+async function handleAuth(e) {
+  e.preventDefault();
+  const pw = document.getElementById('auth-input').value;
+  const errEl = document.getElementById('auth-error');
+  if (!pw) { errEl.textContent = 'Please enter the password'; return false; }
+  errEl.textContent = 'Verifying...';
+  const key = await decryptApiKey(pw);
+  if (!key || !key.startsWith('pat')) {
+    errEl.textContent = 'Invalid password. Please try again.';
+    document.getElementById('auth-input').value = '';
+    document.getElementById('auth-input').focus();
+    return false;
+  }
+  API_KEY = key;
+  sessionStorage.setItem('ss_ops_session', pw);
+  document.getElementById('auth-gate').classList.add('hidden');
+  document.getElementById('app-shell').classList.add('visible');
+  initDashboard();
+  return false;
+}
+
+/* ─── Auto-restore session ──────────────────────────────── */
+async function tryRestoreSession() {
+  const pw = sessionStorage.getItem('ss_ops_session');
+  if (!pw) return;
+  const key = await decryptApiKey(pw);
+  if (key && key.startsWith('pat')) {
+    API_KEY = key;
+    document.getElementById('auth-gate').classList.add('hidden');
+    document.getElementById('app-shell').classList.add('visible');
+    initDashboard();
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   AIRTABLE HELPERS
+   ═══════════════════════════════════════════════════════════════ */
+async function atFetch(url) {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${API_KEY}` } });
+  if (res.status === 429) {
+    await new Promise(r => setTimeout(r, 1200));
+    return atFetch(url);
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error?.message || `Airtable ${res.status}`);
+  }
+  return res.json();
+}
+
+async function listRecords(baseId, tableId, params = {}) {
+  const records = [];
+  let offset = null;
+  do {
+    const url = new URL(`${AT_BASE}/${baseId}/${tableId}`);
+    url.searchParams.set('returnFieldsByFieldId', 'true');
+    for (const [k, v] of Object.entries(params)) {
+      if (k === 'fields' && Array.isArray(v)) v.forEach(f => url.searchParams.append('fields[]', f));
+      else if (Array.isArray(v)) v.forEach(val => url.searchParams.append(`${k}[]`, val));
+      else url.searchParams.set(k, v);
+    }
+    if (offset) url.searchParams.set('offset', offset);
+    const data = await atFetch(url.toString());
+    records.push(...(data.records || []));
+    offset = data.offset || null;
+  } while (offset);
+  return records;
+}
+
+function fv(fields, key) {
+  const v = fields?.[key];
+  if (Array.isArray(v)) return v[0] ?? '';
+  return v ?? '';
+}
+
+function fvNum(fields, key) {
+  const v = fv(fields, key);
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════ */
+function $(id) { return document.getElementById(id); }
+function fmt$(n) { return '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+function fmt$d(n) { return '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtN(n) { return n.toLocaleString('en-US'); }
+function fmtPct(n) { return n.toFixed(1) + '%'; }
+
+function getDateRange() {
+  const preset = $('date-preset').value;
+  const now = new Date();
+  let start, end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+
+  switch (preset) {
+    case 'mtd':
+      start = new Date(now.getFullYear(), now.getMonth(), 1); break;
+    case 'qtd':
+      start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1); break;
+    case 'ytd':
+      start = new Date(now.getFullYear(), 0, 1); break;
+    case 'last30':
+      start = new Date(now); start.setDate(start.getDate() - 30); break;
+    case 'last90':
+      start = new Date(now); start.setDate(start.getDate() - 90); break;
+    case '2025':
+      start = new Date(2025, 0, 1); end = new Date(2025, 11, 31, 23, 59, 59); break;
+    case 'custom':
+      start = $('date-start').value ? new Date($('date-start').value) : new Date(now.getFullYear(), 0, 1);
+      end = $('date-end').value ? new Date($('date-end').value + 'T23:59:59') : new Date(now);
+      break;
+    default:
+      start = new Date(now.getFullYear(), 0, 1);
+  }
+  return { start, end };
+}
+
+function dateFormula(fieldId, start, end) {
+  const s = start.toISOString().split('T')[0];
+  const e = end.toISOString().split('T')[0];
+  return `AND(IS_AFTER({${fieldId}}, '${s}'), IS_BEFORE({${fieldId}}, '${e}'))`;
+}
+
+function monthKey(d) {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabel(key) {
+  const [y, m] = key.split('-');
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${names[parseInt(m) - 1]} ${y}`;
+}
+
+function quarterOf(d) {
+  const dt = new Date(d);
+  return `Q${Math.floor(dt.getMonth() / 3) + 1} ${dt.getFullYear()}`;
+}
+
+function daysBetween(d1, d2) {
+  return Math.max(0, Math.round((new Date(d2) - new Date(d1)) / 86400000));
+}
+
+function agingBucket(dueDate) {
+  if (!dueDate) return '90+';
+  const days = daysBetween(dueDate, new Date());
+  if (days <= 0) return 'Current';
+  if (days <= 30) return '1-30';
+  if (days <= 60) return '31-60';
+  if (days <= 90) return '61-90';
+  return '90+';
+}
+
+function showProgress(pct) {
+  const w = $('progress-wrap');
+  const b = $('progress-bar');
+  if (pct <= 0) { w.style.display = 'none'; return; }
+  w.style.display = 'block';
+  b.style.width = Math.min(100, pct) + '%';
+}
+
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function handlePresetChange() {
+  const preset = $('date-preset').value;
+  $('date-start').style.display = preset === 'custom' ? '' : 'none';
+  $('date-end').style.display = preset === 'custom' ? '' : 'none';
+  if (preset !== 'custom') refreshData();
+}
+
+function handleCustomDate() {
+  if ($('date-start').value && $('date-end').value) refreshData();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TAB SWITCHING
+   ═══════════════════════════════════════════════════════════════ */
+const TAB_TITLES = {
+  summary: 'Executive Summary', revenue: 'Revenue', bids: 'Bids',
+  ledger: 'Ledger Hygiene', registration: 'Registration',
+  receivables: 'Receivables', cashflow: 'Cash Flow'
+};
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(el => el.classList.toggle('active', el.id === 'panel-' + tab));
+  $('page-title').textContent = TAB_TITLES[tab] || tab;
+  if (!dataCache[tab]) loadTabData(tab);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DATA LOADING
+   ═══════════════════════════════════════════════════════════════ */
+async function loadTabData(tab) {
+  try {
+    switch (tab) {
+      case 'summary': await loadSummary(); break;
+      case 'revenue': await loadRevenue(); break;
+      case 'bids': await loadBids(); break;
+      case 'ledger': await loadLedger(); break;
+      case 'registration': await loadRegistration(); break;
+      case 'receivables': await loadReceivables(); break;
+      case 'cashflow': await loadCashFlow(); break;
+    }
+  } catch (err) {
+    console.error(`Error loading ${tab}:`, err);
+    const loadEl = $(`${tab}-loading`);
+    if (loadEl) loadEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">!</div><div class="empty-state-text">Error loading data: ${err.message}</div></div>`;
+  }
+}
+
+async function refreshData() {
+  dataCache[currentTab] = null;
+  const contentEl = $(`${currentTab}-content`);
+  const loadEl = $(`${currentTab}-loading`);
+  if (contentEl) contentEl.style.display = 'none';
+  if (loadEl) { loadEl.style.display = ''; loadEl.innerHTML = '<div class="loading-spinner"></div><div class="loading-text">Refreshing data...</div>'; }
+  $('refresh-btn').classList.add('spinning');
+  await loadTabData(currentTab);
+  $('refresh-btn').classList.remove('spinning');
+}
+
+async function initDashboard() {
+  await loadSummary();
+  $('last-refresh').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RENDER HELPERS
+   ═══════════════════════════════════════════════════════════════ */
+function renderMetrics(containerId, metrics) {
+  const colors = ['#00C8FF', '#e8531d', '#8b5cf6', '#059669', '#d97706', '#ec4899', '#3b82f6'];
+  $(containerId).innerHTML = metrics.map((m, i) => `
+    <div class="metric-card">
+      <div class="metric-accent" style="background:${colors[i % colors.length]}"></div>
+      <div class="metric-label">${m.label}</div>
+      <div class="metric-value${m.small ? ' small' : ''}">${m.value}</div>
+      ${m.sub ? `<div class="metric-sub">${m.sub}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function renderTable(containerId, title, headers, rows, opts = {}) {
+  const count = rows.length;
+  const maxRows = opts.maxRows || 100;
+  const displayed = rows.slice(0, maxRows);
+
+  $(containerId).innerHTML = `
+    <div class="data-table-wrap">
+      <div class="data-table-header">
+        <div class="data-table-title">${title}</div>
+        <div class="data-table-count">${fmtN(count)} records${count > maxRows ? ` (showing ${maxRows})` : ''}</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="tbl-${containerId}">
+          <thead><tr>${headers.map((h, i) => `<th data-col="${i}">${h}<span class="sort-arrow">&#9650;</span></th>`).join('')}</tr></thead>
+          <tbody>${displayed.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Sortable headers
+  const tbl = $('tbl-' + containerId);
+  if (!tbl) return;
+  const ths = tbl.querySelectorAll('th');
+  let sortCol = -1, sortAsc = true;
+  ths.forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      if (sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = true; }
+      ths.forEach(t => t.classList.remove('sorted'));
+      th.classList.add('sorted');
+      th.querySelector('.sort-arrow').innerHTML = sortAsc ? '&#9650;' : '&#9660;';
+      const tbody = tbl.querySelector('tbody');
+      const trs = Array.from(tbody.querySelectorAll('tr'));
+      trs.sort((a, b) => {
+        let va = a.children[col]?.textContent.replace(/[$,%]/g, '') || '';
+        let vb = b.children[col]?.textContent.replace(/[$,%]/g, '') || '';
+        const na = parseFloat(va), nb = parseFloat(vb);
+        if (!isNaN(na) && !isNaN(nb)) return sortAsc ? na - nb : nb - na;
+        return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      });
+      trs.forEach(tr => tbody.appendChild(tr));
+    });
+  });
+}
+
+function makeChart(canvasId, config) {
+  destroyChart(canvasId);
+  const ctx = $(canvasId)?.getContext('2d');
+  if (!ctx) return null;
+  charts[canvasId] = new Chart(ctx, config);
+  return charts[canvasId];
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EXECUTIVE SUMMARY
+   ═══════════════════════════════════════════════════════════════ */
+async function loadSummary() {
+  const { start, end } = getDateRange();
+  showProgress(10);
+
+  // Parallel fetches
+  const [orders, bids, invr, invp] = await Promise.all([
+    listRecords(SL_BASE, T_SL_ORDERS, {
+      filterByFormula: dateFormula(F_ORD_TS, start, end),
+      fields: [F_ORD_TS, F_ORD_TOTAL, F_ORD_REFUND, F_ORD_DOMAIN, F_ORD_SS_PROFIT, F_ORD_TEAM_PROFIT, F_ORD_NET]
+    }),
+    listRecords(TO_BASE, T_BIDS, {
+      filterByFormula: `NOT(OR({${F_BID_STATUS}}="Done",{${F_BID_STATUS}}="Archived",{${F_BID_STATUS}}="Void"))`,
+      fields: [F_BID_ID, F_BID_STATUS, F_BID_CREATED, F_BID_ACCOUNT, F_BID_ACCOUNT_OWNER]
+    }),
+    listRecords(TO_BASE, T_INVR, {
+      filterByFormula: `{${F_INVR_STATUS}}="Open"`,
+      fields: [F_INVR_ID, F_INVR_AMOUNT_DUE, F_INVR_DUE_DATE, F_INVR_ACCOUNT, F_INVR_ACCOUNT_OWNER]
+    }),
+    listRecords(TO_BASE, T_INVP, {
+      filterByFormula: `OR({${F_INVP_STATUS}}="Open",{${F_INVP_STATUS}}="Pending")`,
+      fields: [F_INVP_ID, F_INVP_AMOUNT, F_INVP_STATUS, F_INVP_VENDOR]
+    })
+  ]);
+  showProgress(70);
+
+  // Revenue calculations
+  let totalRevenue = 0, totalRefunds = 0, ssRevenue = 0, tcRevenue = 0;
+  let ssProfit = 0;
+  const monthlyRevenue = {};
+
+  orders.forEach(r => {
+    const f = r.fields;
+    const total = fvNum(f, F_ORD_TOTAL);
+    const refund = fvNum(f, F_ORD_REFUND);
+    const domain = fv(f, F_ORD_DOMAIN) || '';
+    const ts = fv(f, F_ORD_TS);
+    const net = total - refund;
+
+    totalRevenue += net;
+    totalRefunds += refund;
+    ssProfit += fvNum(f, F_ORD_SS_PROFIT);
+
+    if (domain.toLowerCase().includes('teamconnection')) tcRevenue += net;
+    else ssRevenue += net;
+
+    if (ts) {
+      const mk = monthKey(ts);
+      monthlyRevenue[mk] = (monthlyRevenue[mk] || 0) + net;
+    }
+  });
+
+  // Pipeline
+  const pipelineCount = bids.length;
+  const statusCounts = {};
+  bids.forEach(r => {
+    const s = fv(r.fields, F_BID_STATUS) || 'Unknown';
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
+  });
+
+  // Receivables
+  let totalAR = 0;
+  const agingBuckets = { 'Current': 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+  invr.forEach(r => {
+    const amt = fvNum(r.fields, F_INVR_AMOUNT_DUE);
+    totalAR += amt;
+    const bucket = agingBucket(fv(r.fields, F_INVR_DUE_DATE));
+    agingBuckets[bucket] = (agingBuckets[bucket] || 0) + amt;
+  });
+
+  // Payables
+  let totalAP = 0;
+  invp.forEach(r => { totalAP += fvNum(r.fields, F_INVP_AMOUNT); });
+
+  showProgress(90);
+
+  // Render metrics
+  renderMetrics('summary-metrics', [
+    { label: 'Net Revenue', value: fmt$(totalRevenue), sub: `${fmtN(orders.length)} orders` },
+    { label: 'Secondslide Profit', value: fmt$(ssProfit), sub: `${fmtPct(totalRevenue ? (ssProfit / totalRevenue) * 100 : 0)} margin` },
+    { label: 'Open Pipeline', value: fmtN(pipelineCount) + ' bids', small: true },
+    { label: 'Unpaid Receivables', value: fmt$(totalAR), sub: `${fmtN(invr.length)} invoices`, small: true },
+    { label: 'Open Payables', value: fmt$(totalAP), sub: `${fmtN(invp.length)} invoices`, small: true },
+    { label: 'Net Cash Position', value: (totalAR - totalAP >= 0 ? '' : '-') + fmt$(totalAR - totalAP), sub: `<span class="${totalAR - totalAP >= 0 ? 'up' : 'down'}">AR - AP</span>`, small: true }
+  ]);
+
+  // Revenue trend chart
+  const months = Object.keys(monthlyRevenue).sort();
+  makeChart('chart-summary-revenue', {
+    type: 'bar',
+    data: {
+      labels: months.map(monthLabel),
+      datasets: [{ label: 'Net Revenue', data: months.map(m => monthlyRevenue[m]), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .6 }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+  });
+
+  // Pipeline chart
+  const statuses = Object.keys(statusCounts);
+  const statusColors = { 'Pipeline': '#94a3b8', 'Submitted': '#a78bfa', 'Open': '#60a5fa', 'Working': '#818cf8', 'Awaiting Customer Response': '#f59e0b', 'Revisions Needed': '#f87171', 'Committed': '#8b5cf6', 'Ready for Pop Up': '#22d3ee', 'Open Popup': '#06b6d4', 'Ready for Fulfillment': '#2dd4bf', 'Fulfilled': '#06b6d4', 'Payment Needed': '#fb923c', 'Awaiting Payment': '#fbbf24', 'Missing INVP': '#f97316', 'Fulfillment Issue': '#ef4444', 'Ready for Review': '#a3e635', 'Missing Info': '#fca5a5' };
+  makeChart('chart-summary-pipeline', {
+    type: 'doughnut',
+    data: {
+      labels: statuses,
+      datasets: [{ data: statuses.map(s => statusCounts[s]), backgroundColor: statuses.map(s => statusColors[s] || '#94a3b8'), borderWidth: 0 }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 12 } } } }, cutout: '55%' }
+  });
+
+  // Aging chart
+  const bucketLabels = ['Current', '1-30', '31-60', '61-90', '90+'];
+  const bucketColors = ['#34d399', '#60a5fa', '#f59e0b', '#f97316', '#ef4444'];
+  makeChart('chart-summary-aging', {
+    type: 'bar',
+    data: {
+      labels: bucketLabels.map(b => b === 'Current' ? 'Current' : b + ' days'),
+      datasets: [{ label: 'Amount', data: bucketLabels.map(b => agingBuckets[b] || 0), backgroundColor: bucketColors, borderRadius: 6, barPercentage: .6 }]
+    },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } }
+  });
+
+  // Store split chart
+  makeChart('chart-summary-store', {
+    type: 'doughnut',
+    data: {
+      labels: ['Secondslide', 'Team Connection 365'],
+      datasets: [{ data: [ssRevenue, tcRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 12 } } } }, cutout: '55%' }
+  });
+
+  $('summary-loading').style.display = 'none';
+  $('summary-content').style.display = '';
+  dataCache.summary = true;
+  showProgress(0);
+  $('last-refresh').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REVENUE TAB
+   ═══════════════════════════════════════════════════════════════ */
+async function loadRevenue() {
+  const { start, end } = getDateRange();
+  showProgress(10);
+
+  const [orders, stores] = await Promise.all([
+    listRecords(SL_BASE, T_SL_ORDERS, {
+      filterByFormula: dateFormula(F_ORD_TS, start, end),
+      fields: [F_ORD_TS, F_ORD_TOTAL, F_ORD_REFUND, F_ORD_DOMAIN, F_ORD_SS_PROFIT, F_ORD_TEAM_PROFIT, F_ORD_NET, F_ORD_GROSS, F_ORD_MASTER_STORES]
+    }),
+    listRecords(SL_BASE, T_SL_STORES, {
+      fields: [F_STORE_ID, F_STORE_NAME, F_STORE_ACCOUNT, F_STORE_CREATED, F_STORE_OWNER, F_STORE_TYPE]
+    })
+  ]);
+  showProgress(60);
+
+  // Build store lookup
+  const storeMap = {};
+  stores.forEach(r => {
+    storeMap[r.id] = {
+      id: fv(r.fields, F_STORE_ID),
+      name: fv(r.fields, F_STORE_ACCOUNT) || fv(r.fields, F_STORE_NAME),
+      created: fv(r.fields, F_STORE_CREATED),
+      owner: fv(r.fields, F_STORE_OWNER),
+      type: fv(r.fields, F_STORE_TYPE)
+    };
+  });
+
+  // New accounts (created in 2026)
+  const newStoreIds = new Set();
+  Object.values(storeMap).forEach(s => {
+    if (s.created && new Date(s.created).getFullYear() === 2026) newStoreIds.add(s.id);
+  });
+
+  let totalRevenue = 0, totalRefunds = 0, ssRevenue = 0, tcRevenue = 0, ssProfit = 0;
+  const monthlyData = {}; // { key: { ss, tc, total } }
+  const newAccountRev = { 'Q1 2026': 0, 'Q2 2026': 0, 'Q3 2026': 0, 'Q4 2026': 0 };
+  let newAccountTotal = 0;
+  const storeRevenue = {}; // { storeName: { revenue, orders, profit, domain } }
+
+  orders.forEach(r => {
+    const f = r.fields;
+    const total = fvNum(f, F_ORD_TOTAL);
+    const refund = fvNum(f, F_ORD_REFUND);
+    const net = total - refund;
+    const domain = (fv(f, F_ORD_DOMAIN) || '').toLowerCase();
+    const ts = fv(f, F_ORD_TS);
+    const profit = fvNum(f, F_ORD_SS_PROFIT);
+    const isTC = domain.includes('teamconnection');
+
+    totalRevenue += net;
+    totalRefunds += refund;
+    ssProfit += profit;
+    if (isTC) tcRevenue += net; else ssRevenue += net;
+
+    if (ts) {
+      const mk = monthKey(ts);
+      if (!monthlyData[mk]) monthlyData[mk] = { ss: 0, tc: 0, total: 0 };
+      monthlyData[mk].total += net;
+      if (isTC) monthlyData[mk].tc += net; else monthlyData[mk].ss += net;
+    }
+
+    // Check if order belongs to new account
+    const storeLinks = f[F_ORD_MASTER_STORES];
+    if (Array.isArray(storeLinks)) {
+      storeLinks.forEach(storeRecId => {
+        const store = storeMap[storeRecId];
+        if (store) {
+          // Store revenue tracking
+          const sKey = store.name || store.id;
+          if (!storeRevenue[sKey]) storeRevenue[sKey] = { revenue: 0, orders: 0, profit: 0, domain: isTC ? 'TC365' : 'SS', owner: store.owner };
+          storeRevenue[sKey].revenue += net;
+          storeRevenue[sKey].orders += 1;
+          storeRevenue[sKey].profit += profit;
+
+          if (newStoreIds.has(store.id) && ts) {
+            const q = quarterOf(ts);
+            if (newAccountRev[q] !== undefined) newAccountRev[q] += net;
+            newAccountTotal += net;
+          }
+        }
+      });
+    }
+  });
+  showProgress(85);
+
+  // Render metrics
+  renderMetrics('revenue-metrics', [
+    { label: 'Net Revenue', value: fmt$(totalRevenue) },
+    { label: 'Secondslide Revenue', value: fmt$(ssRevenue), sub: `${fmtPct(totalRevenue ? (ssRevenue / totalRevenue) * 100 : 0)} of total` },
+    { label: 'TC365 Revenue', value: fmt$(tcRevenue), sub: `${fmtPct(totalRevenue ? (tcRevenue / totalRevenue) * 100 : 0)} of total` },
+    { label: 'Total Refunds', value: fmt$(totalRefunds), sub: `<span class="down">${fmtPct(totalRevenue ? (totalRefunds / (totalRevenue + totalRefunds)) * 100 : 0)} rate</span>` },
+    { label: 'Gross Margin', value: fmtPct(totalRevenue ? (ssProfit / totalRevenue) * 100 : 0) },
+    { label: 'New Account Revenue (2026)', value: fmt$(newAccountTotal), sub: `${newStoreIds.size} new accounts` }
+  ]);
+
+  $('revenue-chart-badge').textContent = $('date-preset').options[$('date-preset').selectedIndex].text;
+
+  // Monthly revenue chart (stacked)
+  const months = Object.keys(monthlyData).sort();
+  makeChart('chart-revenue-monthly', {
+    type: 'bar',
+    data: {
+      labels: months.map(monthLabel),
+      datasets: [
+        { label: 'Secondslide', data: months.map(m => monthlyData[m].ss), backgroundColor: 'rgba(0,200,255,.8)', borderRadius: 4, barPercentage: .6 },
+        { label: 'Team Connection 365', data: months.map(m => monthlyData[m].tc), backgroundColor: 'rgba(232,83,29,.8)', borderRadius: 4, barPercentage: .6 }
+      ]
+    },
+    options: {
+      responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } },
+      scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } } }
+    }
+  });
+
+  // Revenue by store chart
+  makeChart('chart-revenue-store', {
+    type: 'doughnut',
+    data: {
+      labels: ['Secondslide', 'Team Connection 365'],
+      datasets: [{ data: [ssRevenue, tcRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 12 } } } }, cutout: '55%' }
+  });
+
+  // New account revenue by quarter
+  const qLabels = Object.keys(newAccountRev);
+  makeChart('chart-revenue-new-accounts', {
+    type: 'bar',
+    data: {
+      labels: qLabels,
+      datasets: [{ label: 'New Account Revenue', data: qLabels.map(q => newAccountRev[q]), backgroundColor: ['#34d399', '#60a5fa', '#a78bfa', '#f59e0b'], borderRadius: 6, barPercentage: .5 }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+  });
+
+  // Revenue by store table
+  const storeRows = Object.entries(storeRevenue)
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .map(([name, d]) => [name, d.domain, d.owner || '-', fmtN(d.orders), fmt$d(d.revenue), fmt$d(d.profit)]);
+  renderTable('revenue-table-wrap', 'Revenue by Account', ['Account', 'Store', 'Owner', 'Orders', 'Revenue', 'SS Profit'], storeRows, { maxRows: 50 });
+
+  $('revenue-loading').style.display = 'none';
+  $('revenue-content').style.display = '';
+  dataCache.revenue = true;
+  showProgress(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BIDS TAB
+   ═══════════════════════════════════════════════════════════════ */
+async function loadBids() {
+  const { start, end } = getDateRange();
+  showProgress(10);
+
+  const [bids, bidRequests] = await Promise.all([
+    listRecords(TO_BASE, T_BIDS, {
+      filterByFormula: dateFormula(F_BID_CREATED, start, end),
+      fields: [F_BID_ID, F_BID_STATUS, F_BID_DETAIL_STATUS, F_BID_CREATED, F_BID_COMPLETE_DATE, F_BID_ACCOUNT, F_BID_ACCOUNT_OWNER, F_BID_ACCOUNT_TYPE, F_BID_LINE_ITEMS, F_BID_POPUP]
+    }),
+    listRecords(TO_BASE, T_BID_REQUESTS, {
+      filterByFormula: dateFormula(F_BR_CREATED, start, end),
+      fields: [F_BR_CREATED, F_BR_MIN_SUBMITTED, F_BR_MIN_PENDING_CS, F_BR_MIN_PENDING_SE, F_BR_MIN_IN_PROGRESS, F_BR_MIN_BID_CREATED, F_BR_MIN_OPEN, F_BR_MIN_READY_FULFILL, F_BR_MIN_FULFILLED, F_BR_MIN_FLAGGED, F_BR_STATUS, F_BR_ACCOUNT_NAME, F_BR_ACCOUNT_OWNER]
+    })
+  ]);
+  showProgress(65);
+
+  // Status distribution
+  const statusCounts = {};
+  const statusColors = { 'Pipeline': '#94a3b8', 'Submitted': '#a78bfa', 'Open': '#60a5fa', 'Working': '#818cf8', 'Awaiting Customer Response': '#f59e0b', 'Revisions Needed': '#f87171', 'Committed': '#8b5cf6', 'Ready for Pop Up': '#22d3ee', 'Open Popup': '#06b6d4', 'Ready for Fulfillment': '#2dd4bf', 'Fulfilled': '#06b6d4', 'Payment Needed': '#fb923c', 'Awaiting Payment': '#fbbf24', 'Missing INVP': '#f97316', 'Fulfillment Issue': '#ef4444', 'Ready for Review': '#a3e635', 'Done': '#10b981', 'Archived': '#cbd5e1', 'Void': '#e2e8f0', 'Lost': '#9ca3af', 'Save for Later': '#d1d5db', 'Missing Info': '#fca5a5' };
+  const ownerCounts = {};
+  const monthlyBids = {};
+  let completedCount = 0, totalDaysToComplete = 0;
+  let inFulfillment = 0;
+  const now = new Date();
+
+  bids.forEach(r => {
+    const f = r.fields;
+    const status = fv(f, F_BID_STATUS) || 'Unknown';
+    statusCounts[status] = (statusCounts[status] || 0) + 1;
+
+    const owner = fv(f, F_BID_ACCOUNT_OWNER) || 'Unassigned';
+    ownerCounts[owner] = (ownerCounts[owner] || 0) + 1;
+
+    const created = fv(f, F_BID_CREATED);
+    if (created) {
+      const mk = monthKey(created);
+      monthlyBids[mk] = (monthlyBids[mk] || 0) + 1;
+    }
+
+    if (status === 'Done' || status === 'Archived') {
+      const complete = fv(f, F_BID_COMPLETE_DATE) || fv(f, F_BID_CREATED);
+      if (created && complete) {
+        completedCount++;
+        totalDaysToComplete += daysBetween(created, complete);
+      }
+    }
+
+    if (['Ready for Fulfillment', 'Fulfilled', 'Open Popup', 'Fulfillment Issue'].includes(status)) {
+      inFulfillment++;
+    }
+  });
+
+  // Timing averages from bid requests
+  const timingFields = [
+    { id: F_BR_MIN_SUBMITTED, label: 'Submitted' },
+    { id: F_BR_MIN_PENDING_CS, label: 'Pending CS' },
+    { id: F_BR_MIN_PENDING_SE, label: 'Pending SE' },
+    { id: F_BR_MIN_IN_PROGRESS, label: 'In Progress' },
+    { id: F_BR_MIN_BID_CREATED, label: 'Bid Created' },
+    { id: F_BR_MIN_OPEN, label: 'Open' },
+    { id: F_BR_MIN_READY_FULFILL, label: 'Ready for Fulfillment' },
+    { id: F_BR_MIN_FULFILLED, label: 'Fulfilled' },
+  ];
+  const timingAvgs = timingFields.map(tf => {
+    let sum = 0, count = 0;
+    bidRequests.forEach(r => {
+      const v = fvNum(r.fields, tf.id);
+      if (v > 0) { sum += v; count++; }
+    });
+    return { label: tf.label, avgHours: count > 0 ? (sum / count / 60) : 0 };
+  }).filter(t => t.avgHours > 0);
+
+  const activeBids = bids.filter(r => !['Done', 'Archived', 'Void'].includes(fv(r.fields, F_BID_STATUS)));
+  const avgAge = activeBids.length > 0 ? activeBids.reduce((sum, r) => sum + daysBetween(fv(r.fields, F_BID_CREATED), now), 0) / activeBids.length : 0;
+
+  showProgress(85);
+
+  // Render
+  renderMetrics('bids-metrics', [
+    { label: 'Total Bids (Period)', value: fmtN(bids.length) },
+    { label: 'Active Pipeline', value: fmtN(activeBids.length), small: true },
+    { label: 'In Fulfillment', value: fmtN(inFulfillment), small: true },
+    { label: 'Avg Days to Complete', value: completedCount > 0 ? Math.round(totalDaysToComplete / completedCount) + 'd' : 'N/A', small: true },
+    { label: 'Avg Pipeline Age', value: Math.round(avgAge) + ' days', small: true },
+    { label: 'Completed', value: fmtN(completedCount), sub: `${fmtPct(bids.length ? (completedCount / bids.length) * 100 : 0)} completion rate` }
+  ]);
+
+  // Status chart
+  const statKeys = Object.keys(statusCounts).sort((a, b) => statusCounts[b] - statusCounts[a]);
+  makeChart('chart-bids-status', {
+    type: 'doughnut',
+    data: {
+      labels: statKeys,
+      datasets: [{ data: statKeys.map(s => statusCounts[s]), backgroundColor: statKeys.map(s => statusColors[s] || '#94a3b8'), borderWidth: 0 }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } }, cutout: '50%' }
+  });
+
+  // Time in status chart
+  const timingLabels = timingAvgs.map(t => t.label);
+  const timingValues = timingAvgs.map(t => Math.round(t.avgHours * 10) / 10);
+  makeChart('chart-bids-time', {
+    type: 'bar',
+    data: {
+      labels: timingLabels,
+      datasets: [{ label: 'Avg Hours', data: timingValues, backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .5 }]
+    },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } }
+  });
+
+  // Monthly bid trend
+  const bidMonths = Object.keys(monthlyBids).sort();
+  makeChart('chart-bids-trend', {
+    type: 'line',
+    data: {
+      labels: bidMonths.map(monthLabel),
+      datasets: [{
+        label: 'Bids Created', data: bidMonths.map(m => monthlyBids[m]),
+        borderColor: '#00C8FF', backgroundColor: 'rgba(0,200,255,.1)',
+        fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#00C8FF'
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+  });
+
+  // Owner chart
+  const ownerKeys = Object.keys(ownerCounts).sort((a, b) => ownerCounts[b] - ownerCounts[a]).slice(0, 8);
+  const ownerColors = ['#00C8FF', '#e8531d', '#8b5cf6', '#059669', '#d97706', '#ec4899', '#3b82f6', '#94a3b8'];
+  makeChart('chart-bids-owner', {
+    type: 'bar',
+    data: {
+      labels: ownerKeys,
+      datasets: [{ label: 'Bids', data: ownerKeys.map(o => ownerCounts[o]), backgroundColor: ownerColors, borderRadius: 6, barPercentage: .5 }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+  });
+
+  // Fulfillment metrics card
+  $('bids-fulfillment-wrap').innerHTML = `
+    <div class="chart-card">
+      <div class="chart-title">Fulfillment Snapshot</div>
+      <div class="metric-grid" style="margin-bottom:0">
+        ${['Ready for Fulfillment', 'Open Popup', 'Fulfilled', 'Fulfillment Issue', 'Payment Needed'].map(s => `
+          <div class="metric-card" style="border-left:3px solid ${statusColors[s]}">
+            <div class="metric-label">${s}</div>
+            <div class="metric-value small">${fmtN(statusCounts[s] || 0)}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  // Bids table
+  const bidRows = bids
+    .sort((a, b) => new Date(fv(b.fields, F_BID_CREATED)) - new Date(fv(a.fields, F_BID_CREATED)))
+    .map(r => {
+      const f = r.fields;
+      const status = fv(f, F_BID_STATUS);
+      const pillClass = { 'Done': 'pill-green', 'Fulfilled': 'pill-cyan', 'Open Popup': 'pill-cyan', 'Ready for Fulfillment': 'pill-blue', 'Payment Needed': 'pill-amber', 'Awaiting Payment': 'pill-amber', 'Awaiting Customer Response': 'pill-amber', 'Fulfillment Issue': 'pill-red', 'Revisions Needed': 'pill-red', 'Archived': 'pill-gray', 'Void': 'pill-gray', 'Lost': 'pill-gray', 'Pipeline': 'pill-gray', 'Submitted': 'pill-purple' }[status] || 'pill-blue';
+      return [
+        fv(f, F_BID_ID),
+        fv(f, F_BID_ACCOUNT) || '-',
+        `<span class="pill ${pillClass}">${status}</span>`,
+        fv(f, F_BID_ACCOUNT_OWNER) || '-',
+        fv(f, F_BID_CREATED) ? new Date(fv(f, F_BID_CREATED)).toLocaleDateString() : '-',
+        fv(f, F_BID_COMPLETE_DATE) ? new Date(fv(f, F_BID_COMPLETE_DATE)).toLocaleDateString() : '-',
+        fv(f, F_BID_CREATED) ? daysBetween(fv(f, F_BID_CREATED), fv(f, F_BID_COMPLETE_DATE) || new Date()) + 'd' : '-'
+      ];
+    });
+  renderTable('bids-table-wrap', 'Bid Detail', ['Bid ID', 'Account', 'Status', 'Owner', 'Created', 'Completed', 'Age'], bidRows);
+
+  $('bids-loading').style.display = 'none';
+  $('bids-content').style.display = '';
+  dataCache.bids = true;
+  showProgress(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LEDGER HYGIENE TAB
+   ═══════════════════════════════════════════════════════════════ */
+async function loadLedger() {
+  showProgress(10);
+
+  // Fetch supplier orders and supplier order items
+  const [supplierOrders, supplierOrderItems] = await Promise.all([
+    listRecords(SL_BASE, T_SL_SO, {
+      fields: [F_SO_SUPPLIER, F_SO_ACTUALS_ADDED, F_SO_CREATED, F_SO_SOI]
+    }),
+    listRecords(SL_BASE, T_SL_SOI, {
+      fields: [F_SOI_ACTUAL_COST, F_SOI_SUPPLIER, F_SOI_OI, F_SOI_CREATED]
+    })
+  ]);
+  showProgress(60);
+
+  // Actualization by vendor (from supplier orders)
+  const vendorStats = {}; // { vendor: { total, actualized } }
+  supplierOrders.forEach(r => {
+    const f = r.fields;
+    const vendor = fv(f, F_SO_SUPPLIER) || 'Unknown';
+    if (!vendorStats[vendor]) vendorStats[vendor] = { total: 0, actualized: 0 };
+    vendorStats[vendor].total++;
+    if (f[F_SO_ACTUALS_ADDED]) vendorStats[vendor].actualized++;
+  });
+
+  // SOI-level cost coverage
+  let soiTotal = 0, soiWithCost = 0, soiWithOI = 0;
+  const vendorSOIStats = {};
+  supplierOrderItems.forEach(r => {
+    const f = r.fields;
+    soiTotal++;
+    const cost = fvNum(f, F_SOI_ACTUAL_COST);
+    if (cost > 0) soiWithCost++;
+    const oi = f[F_SOI_OI];
+    if (Array.isArray(oi) && oi.length > 0) soiWithOI++;
+
+    const vendor = fv(f, F_SOI_SUPPLIER) || 'Unknown';
+    if (!vendorSOIStats[vendor]) vendorSOIStats[vendor] = { total: 0, withCost: 0 };
+    vendorSOIStats[vendor].total++;
+    if (cost > 0) vendorSOIStats[vendor].withCost++;
+  });
+
+  // Missing supplier orders: order items with no SOI linkage and not registration
+  // We'll approximate by counting SOs with no linked order items
+  const missingSOs = supplierOrders.filter(r => {
+    const sois = r.fields[F_SO_SOI];
+    return !sois || (Array.isArray(sois) && sois.length === 0);
+  });
+
+  // Monthly actualization trend (from SO created dates)
+  const monthlyActualization = {};
+  supplierOrders.forEach(r => {
+    const f = r.fields;
+    const created = fv(f, F_SO_CREATED);
+    if (!created) return;
+    const mk = monthKey(created);
+    if (!monthlyActualization[mk]) monthlyActualization[mk] = { total: 0, actualized: 0 };
+    monthlyActualization[mk].total++;
+    if (f[F_SO_ACTUALS_ADDED]) monthlyActualization[mk].actualized++;
+  });
+
+  const overallPct = soiTotal > 0 ? (soiWithCost / soiTotal) * 100 : 0;
+  const linkRate = soiTotal > 0 ? (soiWithOI / soiTotal) * 100 : 0;
+  const soActPct = supplierOrders.length > 0 ? (supplierOrders.filter(r => r.fields[F_SO_ACTUALS_ADDED]).length / supplierOrders.length) * 100 : 0;
+
+  showProgress(85);
+
+  renderMetrics('ledger-metrics', [
+    { label: 'SOI Cost Coverage', value: fmtPct(overallPct), sub: `${fmtN(soiWithCost)} / ${fmtN(soiTotal)} items` },
+    { label: 'SO Actualization', value: fmtPct(soActPct), sub: `${fmtN(supplierOrders.filter(r => r.fields[F_SO_ACTUALS_ADDED]).length)} / ${fmtN(supplierOrders.length)} orders` },
+    { label: 'SOI Link Rate', value: fmtPct(linkRate), sub: 'SOIs linked to order items' },
+    { label: 'Empty Supplier Orders', value: fmtN(missingSOs.length), sub: 'SOs with no SOIs' },
+    { label: 'Total Supplier Orders', value: fmtN(supplierOrders.length) },
+    { label: 'Total SOIs', value: fmtN(soiTotal) }
+  ]);
+
+  // Vendor actualization chart
+  const vendors = Object.entries(vendorSOIStats).sort((a, b) => b[1].total - a[1].total).slice(0, 12);
+  makeChart('chart-ledger-vendor', {
+    type: 'bar',
+    data: {
+      labels: vendors.map(([v]) => v.length > 18 ? v.slice(0, 16) + '...' : v),
+      datasets: [
+        { label: 'With Cost', data: vendors.map(([, d]) => d.withCost), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 4, barPercentage: .6 },
+        { label: 'Missing Cost', data: vendors.map(([, d]) => d.total - d.withCost), backgroundColor: 'rgba(239,68,68,.5)', borderRadius: 4, barPercentage: .6 }
+      ]
+    },
+    options: {
+      responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } },
+      scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, grid: { color: '#f1f5f9' } } }
+    }
+  });
+
+  // Monthly trend
+  const actMonths = Object.keys(monthlyActualization).sort().slice(-12);
+  makeChart('chart-ledger-trend', {
+    type: 'line',
+    data: {
+      labels: actMonths.map(monthLabel),
+      datasets: [{
+        label: 'Actualization %', data: actMonths.map(m => {
+          const d = monthlyActualization[m];
+          return d.total > 0 ? Math.round((d.actualized / d.total) * 1000) / 10 : 0;
+        }),
+        borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.1)',
+        fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#10b981'
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+  });
+
+  // Vendor table
+  const vendorRows = Object.entries(vendorSOIStats)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([v, d]) => {
+      const pct = d.total > 0 ? (d.withCost / d.total) * 100 : 0;
+      const pillClass = pct >= 90 ? 'pill-green' : pct >= 50 ? 'pill-amber' : 'pill-red';
+      return [v, fmtN(d.total), fmtN(d.withCost), fmtN(d.total - d.withCost), `<span class="pill ${pillClass}">${fmtPct(pct)}</span>`];
+    });
+  renderTable('ledger-vendor-table-wrap', 'Actualization by Vendor (SOI Level)', ['Vendor', 'Total SOIs', 'With Cost', 'Missing Cost', 'Coverage'], vendorRows);
+
+  $('ledger-loading').style.display = 'none';
+  $('ledger-content').style.display = '';
+  dataCache.ledger = true;
+  showProgress(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REGISTRATION TAB
+   ═══════════════════════════════════════════════════════════════ */
+async function loadRegistration() {
+  const { start, end } = getDateRange();
+  showProgress(10);
+
+  // Fetch registration order items
+  const regItems = await listRecords(SL_BASE, T_SL_OI, {
+    filterByFormula: `AND({${F_OI_REG}}=TRUE(), {${F_OI_STATUS}}="Active", IS_AFTER({${F_OI_CREATED}}, '${start.toISOString().split('T')[0]}'), IS_BEFORE({${F_OI_CREATED}}, '${end.toISOString().split('T')[0]}'))`,
+    fields: [F_OI_RETAIL_PRICE, F_OI_QTY, F_OI_TITLE, F_OI_CREATED, F_OI_ORDERS]
+  });
+  showProgress(60);
+
+  let totalRevenue = 0, totalItems = 0;
+  const monthlyRev = {};
+  const titleRevenue = {};
+
+  regItems.forEach(r => {
+    const f = r.fields;
+    const price = fvNum(f, F_OI_RETAIL_PRICE);
+    const qty = fvNum(f, F_OI_QTY) || 1;
+    const rev = price * qty;
+    const title = fv(f, F_OI_TITLE) || 'Unknown';
+    const created = fv(f, F_OI_CREATED);
+
+    totalRevenue += rev;
+    totalItems++;
+
+    if (created) {
+      const mk = monthKey(created);
+      monthlyRev[mk] = (monthlyRev[mk] || 0) + rev;
+    }
+
+    if (!titleRevenue[title]) titleRevenue[title] = { revenue: 0, count: 0 };
+    titleRevenue[title].revenue += rev;
+    titleRevenue[title].count += qty;
+  });
+
+  const avgPerItem = totalItems > 0 ? totalRevenue / totalItems : 0;
+  showProgress(85);
+
+  renderMetrics('registration-metrics', [
+    { label: 'Registration Revenue', value: fmt$(totalRevenue) },
+    { label: 'Registration Items', value: fmtN(totalItems) },
+    { label: 'Avg per Item', value: fmt$d(avgPerItem) },
+    { label: 'Active Months', value: fmtN(Object.keys(monthlyRev).length) }
+  ]);
+
+  // Monthly chart
+  const months = Object.keys(monthlyRev).sort();
+  makeChart('chart-registration-monthly', {
+    type: 'bar',
+    data: {
+      labels: months.map(monthLabel),
+      datasets: [{ label: 'Registration Revenue', data: months.map(m => monthlyRev[m]), backgroundColor: 'rgba(139,92,246,.7)', borderRadius: 6, barPercentage: .5 }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+  });
+
+  // Registration products table
+  const regRows = Object.entries(titleRevenue)
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .map(([title, d]) => [title, fmtN(d.count), fmt$d(d.revenue), fmt$d(d.count > 0 ? d.revenue / d.count : 0)]);
+  renderTable('registration-table-wrap', 'Registration Products', ['Product', 'Quantity', 'Revenue', 'Avg Price'], regRows, { maxRows: 50 });
+
+  $('registration-loading').style.display = 'none';
+  $('registration-content').style.display = '';
+  dataCache.registration = true;
+  showProgress(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RECEIVABLES TAB
+   ═══════════════════════════════════════════════════════════════ */
+async function loadReceivables() {
+  showProgress(10);
+
+  const invr = await listRecords(TO_BASE, T_INVR, {
+    filterByFormula: `{${F_INVR_STATUS}}="Open"`,
+    fields: [F_INVR_ID, F_INVR_AMOUNT_DUE, F_INVR_AMOUNT_PAID, F_INVR_DUE_DATE, F_INVR_CREATED, F_INVR_ACCOUNT, F_INVR_ACCOUNT_OWNER, F_INVR_STORE_ID]
+  });
+  showProgress(60);
+
+  let totalDue = 0;
+  const aging = { 'Current': 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+  const agingCount = { 'Current': 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+  const ownerTotals = {};
+
+  invr.forEach(r => {
+    const f = r.fields;
+    const amt = fvNum(f, F_INVR_AMOUNT_DUE);
+    totalDue += amt;
+
+    const bucket = agingBucket(fv(f, F_INVR_DUE_DATE));
+    aging[bucket] = (aging[bucket] || 0) + amt;
+    agingCount[bucket] = (agingCount[bucket] || 0) + 1;
+
+    const owner = fv(f, F_INVR_ACCOUNT_OWNER) || 'Unassigned';
+    if (!ownerTotals[owner]) ownerTotals[owner] = { amount: 0, count: 0 };
+    ownerTotals[owner].amount += amt;
+    ownerTotals[owner].count++;
+  });
+
+  const pastDue = totalDue - (aging['Current'] || 0);
+  const avgDue = invr.length > 0 ? totalDue / invr.length : 0;
+  showProgress(85);
+
+  renderMetrics('receivables-metrics', [
+    { label: 'Total Unpaid', value: fmt$(totalDue), sub: `${fmtN(invr.length)} invoices` },
+    { label: 'Past Due', value: fmt$(pastDue), sub: `<span class="${pastDue > 0 ? 'down' : 'up'}">${fmtN(invr.length - (agingCount['Current'] || 0))} invoices</span>` },
+    { label: 'Avg Invoice', value: fmt$d(avgDue), small: true },
+    { label: 'Current (Not Due)', value: fmt$(aging['Current'] || 0), sub: `${fmtN(agingCount['Current'] || 0)} invoices` },
+    { label: '90+ Days', value: fmt$(aging['90+'] || 0), sub: `<span class="down">${fmtN(agingCount['90+'] || 0)} invoices</span>` }
+  ]);
+
+  // Aging doughnut
+  const bucketLabels = ['Current', '1-30', '31-60', '61-90', '90+'];
+  const bucketColors = ['#34d399', '#60a5fa', '#f59e0b', '#f97316', '#ef4444'];
+  makeChart('chart-receivables-aging', {
+    type: 'doughnut',
+    data: {
+      labels: bucketLabels.map(b => b === 'Current' ? 'Current' : b + ' days'),
+      datasets: [{ data: bucketLabels.map(b => aging[b] || 0), backgroundColor: bucketColors, borderWidth: 0 }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 12 } } } }, cutout: '55%' }
+  });
+
+  // Owner chart
+  const owners = Object.entries(ownerTotals).sort((a, b) => b[1].amount - a[1].amount);
+  makeChart('chart-receivables-owner', {
+    type: 'bar',
+    data: {
+      labels: owners.map(([o]) => o),
+      datasets: [{ label: 'Amount Due', data: owners.map(([, d]) => d.amount), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .5 }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+  });
+
+  // Detail table
+  const invrRows = invr
+    .sort((a, b) => fvNum(b.fields, F_INVR_AMOUNT_DUE) - fvNum(a.fields, F_INVR_AMOUNT_DUE))
+    .map(r => {
+      const f = r.fields;
+      const due = fv(f, F_INVR_DUE_DATE);
+      const bucket = agingBucket(due);
+      const pillClass = { 'Current': 'pill-green', '1-30': 'pill-blue', '31-60': 'pill-amber', '61-90': 'pill-red', '90+': 'pill-red' }[bucket] || 'pill-gray';
+      return [
+        fv(f, F_INVR_ID),
+        fv(f, F_INVR_ACCOUNT) || '-',
+        fv(f, F_INVR_ACCOUNT_OWNER) || '-',
+        fmt$d(fvNum(f, F_INVR_AMOUNT_DUE)),
+        due ? new Date(due).toLocaleDateString() : '-',
+        `<span class="pill ${pillClass}">${bucket === 'Current' ? 'Current' : bucket + ' days'}</span>`,
+        fv(f, F_INVR_CREATED) ? new Date(fv(f, F_INVR_CREATED)).toLocaleDateString() : '-'
+      ];
+    });
+  renderTable('receivables-table-wrap', 'Unpaid Invoices', ['Invoice', 'Account', 'Owner', 'Amount Due', 'Due Date', 'Aging', 'Created'], invrRows);
+
+  $('receivables-loading').style.display = 'none';
+  $('receivables-content').style.display = '';
+  dataCache.receivables = true;
+  showProgress(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CASH FLOW TAB
+   ═══════════════════════════════════════════════════════════════ */
+async function loadCashFlow() {
+  showProgress(10);
+
+  const [invr, invp, paidInvr, paidInvp] = await Promise.all([
+    listRecords(TO_BASE, T_INVR, {
+      filterByFormula: `{${F_INVR_STATUS}}="Open"`,
+      fields: [F_INVR_AMOUNT_DUE, F_INVR_DUE_DATE, F_INVR_ACCOUNT]
+    }),
+    listRecords(TO_BASE, T_INVP, {
+      filterByFormula: `OR({${F_INVP_STATUS}}="Open",{${F_INVP_STATUS}}="Pending")`,
+      fields: [F_INVP_AMOUNT, F_INVP_DUE_DATE, F_INVP_VENDOR]
+    }),
+    listRecords(TO_BASE, T_INVR, {
+      filterByFormula: `AND({${F_INVR_STATUS}}="Paid", IS_AFTER({${F_INVR_PAID_DATE}}, '2025-01-01'))`,
+      fields: [F_INVR_AMOUNT_PAID, F_INVR_PAID_DATE]
+    }),
+    listRecords(TO_BASE, T_INVP, {
+      filterByFormula: `AND({${F_INVP_STATUS}}="Paid", IS_AFTER({${F_INVP_PAID_DATE}}, '2025-01-01'))`,
+      fields: [F_INVP_AMOUNT, F_INVP_PAID_DATE]
+    })
+  ]);
+  showProgress(65);
+
+  let totalAR = 0, totalAP = 0;
+  invr.forEach(r => { totalAR += fvNum(r.fields, F_INVR_AMOUNT_DUE); });
+  invp.forEach(r => { totalAP += fvNum(r.fields, F_INVP_AMOUNT); });
+
+  // Monthly paid collections and disbursements
+  const monthlyAR = {}, monthlyAP = {};
+  paidInvr.forEach(r => {
+    const d = fv(r.fields, F_INVR_PAID_DATE);
+    if (!d) return;
+    const mk = monthKey(d);
+    monthlyAR[mk] = (monthlyAR[mk] || 0) + fvNum(r.fields, F_INVR_AMOUNT_PAID);
+  });
+  paidInvp.forEach(r => {
+    const d = fv(r.fields, F_INVP_PAID_DATE);
+    if (!d) return;
+    const mk = monthKey(d);
+    monthlyAP[mk] = (monthlyAP[mk] || 0) + fvNum(r.fields, F_INVP_AMOUNT);
+  });
+
+  // AR due by month
+  const arByMonth = {};
+  invr.forEach(r => {
+    const d = fv(r.fields, F_INVR_DUE_DATE);
+    const mk = d ? monthKey(d) : 'Overdue';
+    arByMonth[mk] = (arByMonth[mk] || 0) + fvNum(r.fields, F_INVR_AMOUNT_DUE);
+  });
+
+  // AP due by month
+  const apByMonth = {};
+  invp.forEach(r => {
+    const d = fv(r.fields, F_INVP_DUE_DATE);
+    const mk = d ? monthKey(d) : 'No Date';
+    apByMonth[mk] = (apByMonth[mk] || 0) + fvNum(r.fields, F_INVP_AMOUNT);
+  });
+
+  const netPosition = totalAR - totalAP;
+  showProgress(85);
+
+  renderMetrics('cashflow-metrics', [
+    { label: 'Outstanding AR', value: fmt$(totalAR), sub: `${fmtN(invr.length)} invoices receivable` },
+    { label: 'Outstanding AP', value: fmt$(totalAP), sub: `${fmtN(invp.length)} invoices payable` },
+    { label: 'Net Position', value: (netPosition >= 0 ? '' : '-') + fmt$(netPosition), sub: `<span class="${netPosition >= 0 ? 'up' : 'down'}">${netPosition >= 0 ? 'Positive' : 'Negative'} cash flow</span>` },
+    { label: 'AR / AP Ratio', value: totalAP > 0 ? (totalAR / totalAP).toFixed(2) + 'x' : 'N/A', sub: totalAR > totalAP ? '<span class="up">Healthy</span>' : '<span class="down">Watch</span>' }
+  ]);
+
+  // AR vs AP monthly trend (paid)
+  const allMonths = [...new Set([...Object.keys(monthlyAR), ...Object.keys(monthlyAP)])].sort().slice(-12);
+  makeChart('chart-cashflow-arap', {
+    type: 'bar',
+    data: {
+      labels: allMonths.map(monthLabel),
+      datasets: [
+        { label: 'Collections (AR Paid)', data: allMonths.map(m => monthlyAR[m] || 0), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 4, barPercentage: .6 },
+        { label: 'Disbursements (AP Paid)', data: allMonths.map(m => monthlyAP[m] || 0), backgroundColor: 'rgba(239,68,68,.5)', borderRadius: 4, barPercentage: .6 }
+      ]
+    },
+    options: {
+      responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } },
+      scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
+    }
+  });
+
+  // Net cash by month
+  makeChart('chart-cashflow-net', {
+    type: 'line',
+    data: {
+      labels: allMonths.map(monthLabel),
+      datasets: [{
+        label: 'Net (Collections - Disbursements)',
+        data: allMonths.map(m => (monthlyAR[m] || 0) - (monthlyAP[m] || 0)),
+        borderColor: '#00C8FF', backgroundColor: 'rgba(0,200,255,.1)',
+        fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#00C8FF'
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+  });
+
+  // Cash flow table
+  const cfRows = [];
+  const allDueMonths = [...new Set([...Object.keys(arByMonth), ...Object.keys(apByMonth)])].sort();
+  allDueMonths.forEach(mk => {
+    const ar = arByMonth[mk] || 0;
+    const ap = apByMonth[mk] || 0;
+    const net = ar - ap;
+    cfRows.push([mk === 'Overdue' || mk === 'No Date' ? mk : monthLabel(mk), fmt$d(ar), fmt$d(ap), `<span class="${net >= 0 ? 'up' : 'down'}" style="font-weight:600">${net >= 0 ? '' : '-'}${fmt$d(net)}</span>`]);
+  });
+  renderTable('cashflow-table-wrap', 'Cash Flow by Due Month', ['Period', 'AR Due', 'AP Due', 'Net'], cfRows);
+
+  $('cashflow-loading').style.display = 'none';
+  $('cashflow-content').style.display = '';
+  dataCache.cashflow = true;
+  showProgress(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', tryRestoreSession);
+</script>
+</body>
+</html>
