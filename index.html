@@ -892,12 +892,13 @@ function renderSummary(d) {
     { label: 'Past Due', value: fmt$(d.pastDue || 0) },
   ]);
 
+  const fsFiltered = Object.entries(fs).filter(([g]) => g !== 'Shipped / Fulfilled');
   renderSummarySection(container, 'Bids & Fulfillment', '#8b5cf6', [
     { label: 'Open Pipeline', value: fmtN(d.pipelineCount) + ' bids' },
+    { label: 'Pipeline Value', value: fmt$(d.pipelineValue || 0) },
     { label: 'Total Bids (YTD)', value: fmtN(d.totalBidsYTD || 0) },
-    { label: 'In Fulfillment', value: fmtN(d.inFulfillment || 0) },
     { label: 'Avg Time to Quote', value: (d.avgTimeToQuote || 0) + 'h', small: true },
-    ...Object.entries(fs).map(([g, c]) => ({ label: g, value: fmtN(c), small: true })),
+    ...fsFiltered.map(([g, c]) => ({ label: g, value: fmtN(c), small: true })),
   ]);
 
   renderSummarySection(container, 'Ledger Hygiene', '#059669', [
