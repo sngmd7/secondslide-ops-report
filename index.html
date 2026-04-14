@@ -1366,26 +1366,20 @@ async function loadBids() {
 async function loadLedger() {
   showProgress(10);
 
-  // Fetch supplier orders and SOIs with date filter to avoid timeouts
-  // Use 12-month lookback for comprehensive coverage
+  // Fetch supplier orders only (SO-level actualization). SOI detail is in the dedicated tool.
+  // Use 6-month lookback for fast load; dedicated actualization tool has full history.
   const lookback = new Date();
-  lookback.setFullYear(lookback.getFullYear() - 1);
+  lookback.setMonth(lookback.getMonth() - 6);
   const lbDate = lookback.toISOString().split('T')[0];
 
-  const [supplierOrders, supplierOrderItems] = await Promise.all([
-    listRecords(SL_BASE, T_SL_SO, {
-      filterByFormula: `IS_AFTER({${F_SO_CREATED}}, '${lbDate}')`,
-      fields: [F_SO_SUPPLIER, F_SO_ACTUALS_ADDED, F_SO_CREATED, F_SO_SOI]
-    }),
-    listRecords(SL_BASE, T_SL_SOI, {
-      filterByFormula: `IS_AFTER({${F_SOI_CREATED}}, '${lbDate}')`,
-      fields: [F_SOI_ACTUAL_COST, F_SOI_SUPPLIER, F_SOI_OI, F_SOI_CREATED]
-    })
-  ]);
+  const supplierOrders = await listRecords(SL_BASE, T_SL_SO, {
+    filterByFormula: `IS_AFTER({${F_SO_CREATED}}, '${lbDate}')`,
+    fields: [F_SO_SUPPLIER, F_SO_ACTUALS_ADDED, F_SO_CREATED, F_SO_SOI]
+  });
   showProgress(60);
 
   // Actualization by vendor (from supplier orders)
-  const vendorStats = {}; // { vendor: { total, actualized } }
+  const vendorStats = {};
   supplierOrders.forEach(r => {
     const f = r.fields;
     const vendor = fv(f, F_SO_SUPPLIER) || 'Unknown';
@@ -1394,31 +1388,13 @@ async function loadLedger() {
     if (f[F_SO_ACTUALS_ADDED]) vendorStats[vendor].actualized++;
   });
 
-  // SOI-level cost coverage
-  let soiTotal = 0, soiWithCost = 0, soiWithOI = 0;
-  const vendorSOIStats = {};
-  supplierOrderItems.forEach(r => {
-    const f = r.fields;
-    soiTotal++;
-    const cost = fvNum(f, F_SOI_ACTUAL_COST);
-    if (cost > 0) soiWithCost++;
-    const oi = f[F_SOI_OI];
-    if (Array.isArray(oi) && oi.length > 0) soiWithOI++;
-
-    const vendor = fv(f, F_SOI_SUPPLIER) || 'Unknown';
-    if (!vendorSOIStats[vendor]) vendorSOIStats[vendor] = { total: 0, withCost: 0 };
-    vendorSOIStats[vendor].total++;
-    if (cost > 0) vendorSOIStats[vendor].withCost++;
-  });
-
-  // Missing supplier orders: order items with no SOI linkage and not registration
-  // We'll approximate by counting SOs with no linked order items
+  // Missing: SOs with no SOIs linked
   const missingSOs = supplierOrders.filter(r => {
     const sois = r.fields[F_SO_SOI];
     return !sois || (Array.isArray(sois) && sois.length === 0);
   });
 
-  // Monthly actualization trend (from SO created dates)
+  // Monthly actualization trend
   const monthlyActualization = {};
   supplierOrders.forEach(r => {
     const f = r.fields;
@@ -1430,30 +1406,28 @@ async function loadLedger() {
     if (f[F_SO_ACTUALS_ADDED]) monthlyActualization[mk].actualized++;
   });
 
-  const overallPct = soiTotal > 0 ? (soiWithCost / soiTotal) * 100 : 0;
-  const linkRate = soiTotal > 0 ? (soiWithOI / soiTotal) * 100 : 0;
-  const soActPct = supplierOrders.length > 0 ? (supplierOrders.filter(r => r.fields[F_SO_ACTUALS_ADDED]).length / supplierOrders.length) * 100 : 0;
+  const totalActualized = supplierOrders.filter(r => r.fields[F_SO_ACTUALS_ADDED]).length;
+  const soActPct = supplierOrders.length > 0 ? (totalActualized / supplierOrders.length) * 100 : 0;
 
   showProgress(85);
 
   renderMetrics('ledger-metrics', [
-    { label: 'SOI Cost Coverage', value: fmtPct(overallPct), sub: `${fmtN(soiWithCost)} / ${fmtN(soiTotal)} items` },
-    { label: 'SO Actualization', value: fmtPct(soActPct), sub: `${fmtN(supplierOrders.filter(r => r.fields[F_SO_ACTUALS_ADDED]).length)} / ${fmtN(supplierOrders.length)} orders` },
-    { label: 'SOI Link Rate', value: fmtPct(linkRate), sub: 'SOIs linked to order items' },
-    { label: 'Empty Supplier Orders', value: fmtN(missingSOs.length), sub: 'SOs with no SOIs' },
-    { label: 'Total Supplier Orders', value: fmtN(supplierOrders.length) },
-    { label: 'Total SOIs', value: fmtN(soiTotal) }
+    { label: 'SO Actualization (6mo)', value: fmtPct(soActPct), sub: `${fmtN(totalActualized)} / ${fmtN(supplierOrders.length)} orders` },
+    { label: 'Unactualized SOs', value: fmtN(supplierOrders.length - totalActualized), sub: `<span class="${soActPct >= 80 ? 'up' : 'down'}">${fmtPct(100 - soActPct)} remaining</span>` },
+    { label: 'Empty SOs (No SOIs)', value: fmtN(missingSOs.length), sub: 'SOs with no line items linked' },
+    { label: 'Total SOs (6mo)', value: fmtN(supplierOrders.length) },
+    { label: 'Vendors Tracked', value: fmtN(Object.keys(vendorStats).length) }
   ]);
 
-  // Vendor actualization chart
-  const vendors = Object.entries(vendorSOIStats).sort((a, b) => b[1].total - a[1].total).slice(0, 12);
+  // Vendor actualization chart (SO-level)
+  const vendors = Object.entries(vendorStats).sort((a, b) => b[1].total - a[1].total).slice(0, 12);
   makeChart('chart-ledger-vendor', {
     type: 'bar',
     data: {
       labels: vendors.map(([v]) => v.length > 18 ? v.slice(0, 16) + '...' : v),
       datasets: [
-        { label: 'With Cost', data: vendors.map(([, d]) => d.withCost), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 4, barPercentage: .6 },
-        { label: 'Missing Cost', data: vendors.map(([, d]) => d.total - d.withCost), backgroundColor: 'rgba(239,68,68,.5)', borderRadius: 4, barPercentage: .6 }
+        { label: 'Actualized', data: vendors.map(([, d]) => d.actualized), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 4, barPercentage: .6 },
+        { label: 'Not Actualized', data: vendors.map(([, d]) => d.total - d.actualized), backgroundColor: 'rgba(239,68,68,.5)', borderRadius: 4, barPercentage: .6 }
       ]
     },
     options: {
@@ -1481,14 +1455,14 @@ async function loadLedger() {
   });
 
   // Vendor table
-  const vendorRows = Object.entries(vendorSOIStats)
+  const vendorRows = Object.entries(vendorStats)
     .sort((a, b) => b[1].total - a[1].total)
     .map(([v, d]) => {
-      const pct = d.total > 0 ? (d.withCost / d.total) * 100 : 0;
+      const pct = d.total > 0 ? (d.actualized / d.total) * 100 : 0;
       const pillClass = pct >= 90 ? 'pill-green' : pct >= 50 ? 'pill-amber' : 'pill-red';
-      return [v, fmtN(d.total), fmtN(d.withCost), fmtN(d.total - d.withCost), `<span class="pill ${pillClass}">${fmtPct(pct)}</span>`];
+      return [v, fmtN(d.total), fmtN(d.actualized), fmtN(d.total - d.actualized), `<span class="pill ${pillClass}">${fmtPct(pct)}</span>`];
     });
-  renderTable('ledger-vendor-table-wrap', 'Actualization by Vendor (SOI Level)', ['Vendor', 'Total SOIs', 'With Cost', 'Missing Cost', 'Coverage'], vendorRows);
+  renderTable('ledger-vendor-table-wrap', 'Actualization by Vendor (Last 6 Months)', ['Vendor', 'Total SOs', 'Actualized', 'Remaining', 'Coverage'], vendorRows);
 
   $('ledger-loading').style.display = 'none';
   $('ledger-content').style.display = '';
