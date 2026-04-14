@@ -280,7 +280,7 @@ tailwind.config = {
       </div>
       <div class="nav-item" data-tab="revenue" onclick="switchTab('revenue')">
         <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-        Revenue
+        Revenue & Receivables
       </div>
       <div class="nav-item" data-tab="bids" onclick="switchTab('bids')">
         <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -293,10 +293,6 @@ tailwind.config = {
       <div class="nav-item" data-tab="registration" onclick="switchTab('registration')">
         <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
         Registration
-      </div>
-      <div class="nav-item" data-tab="receivables" onclick="switchTab('receivables')">
-        <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-        Receivables
       </div>
     </nav>
     <div class="sidebar-footer">
@@ -331,20 +327,21 @@ tailwind.config = {
           </div>
           <div class="grid-2">
             <div class="chart-card"><div class="chart-title">Receivables Aging</div><div style="max-height:200px"><canvas id="chart-summary-aging"></canvas></div></div>
-            <div class="chart-card"><div class="chart-title">Revenue: Bids vs Shopify</div><div style="max-height:200px"><canvas id="chart-summary-store"></canvas></div></div>
+            <div class="chart-card"><div class="chart-title">Secondslide vs TC365</div><div style="max-height:200px"><canvas id="chart-summary-store"></canvas></div></div>
           </div>
         </div>
       </div>
 
-      <!-- ── Revenue ────────────────────────────────────── -->
+      <!-- ── Revenue & Receivables ───────────────────── -->
       <div class="tab-panel" id="panel-revenue">
         <div id="revenue-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading revenue data...</div></div>
         <div id="revenue-content" style="display:none">
           <div class="metric-grid" id="revenue-metrics"></div>
           <div class="grid-2">
-            <div class="chart-card"><div class="chart-title"><span id="revenue-period-label"></span> — Monthly Revenue</div><div style="max-height:220px"><canvas id="chart-revenue-monthly"></canvas></div></div>
-            <div class="chart-card"><div class="chart-title">Revenue Split: Bids vs Shopify</div><div style="max-height:220px"><canvas id="chart-revenue-split"></canvas></div></div>
+            <div class="chart-card"><div class="chart-title"><span id="revenue-period-label"></span> — Monthly Revenue (SS vs TC365)</div><div style="max-height:220px"><canvas id="chart-revenue-monthly"></canvas></div></div>
+            <div class="chart-card"><div class="chart-title">Receivables Aging</div><div style="max-height:220px"><canvas id="chart-revenue-aging"></canvas></div></div>
           </div>
+          <div id="revenue-invr-table-wrap"></div>
         </div>
       </div>
 
@@ -385,15 +382,6 @@ tailwind.config = {
         </div>
       </div>
 
-      <!-- ── Receivables ────────────────────────────────── -->
-      <div class="tab-panel" id="panel-receivables">
-        <div id="receivables-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading receivables data...</div></div>
-        <div id="receivables-content" style="display:none">
-          <div class="metric-grid" id="receivables-metrics"></div>
-          <div class="chart-card" style="max-width:500px"><div class="chart-title">Aging Distribution</div><div style="max-height:220px"><canvas id="chart-receivables-aging"></canvas></div></div>
-          <div id="receivables-table-wrap"></div>
-        </div>
-      </div>
 
 
     </div><!-- content-area -->
@@ -726,9 +714,8 @@ function handleCustomDate() {
    TAB SWITCHING
    ═══════════════════════════════════════════════════════════════ */
 const TAB_TITLES = {
-  summary: 'Executive Summary', revenue: 'Revenue', bids: 'Bids',
-  ledger: 'Ledger Hygiene', registration: 'Registration',
-  receivables: 'Receivables'
+  summary: 'Executive Summary', revenue: 'Revenue & Receivables', bids: 'Bids',
+  ledger: 'Ledger Hygiene', registration: 'Registration'
 };
 
 function switchTab(tab) {
@@ -751,7 +738,6 @@ function renderTab(tab) {
       case 'bids': renderBids(snapshot.bids); break;
       case 'ledger': renderLedger(snapshot.ledger); break;
       case 'registration': renderRegistration(snapshot.registration); break;
-      case 'receivables': renderReceivables(snapshot.receivables); break;
     }
     dataCache[tab] = true;
   } catch (err) {
@@ -869,53 +855,59 @@ const BUCKET_COLORS = ['#34d399', '#60a5fa', '#f59e0b', '#f97316', '#ef4444'];
 const PILL_MAP = { 'Done': 'pill-green', 'Fulfilled': 'pill-cyan', 'Open Popup': 'pill-cyan', 'Ready for Fulfillment': 'pill-blue', 'Payment Needed': 'pill-amber', 'Awaiting Payment': 'pill-amber', 'Awaiting Customer Response': 'pill-amber', 'Fulfillment Issue': 'pill-red', 'Revisions Needed': 'pill-red', 'Archived': 'pill-gray', 'Void': 'pill-gray', 'Lost': 'pill-gray', 'Pipeline': 'pill-gray', 'Submitted': 'pill-purple' };
 
 function renderSummary(d) {
-  const netPos = d.netPosition || (d.totalAR - d.totalAP);
   if ($('summary-period-label')) $('summary-period-label').textContent = d.periodLabel || 'YTD';
   renderMetrics('summary-metrics', [
     { label: 'Total Product Revenue', value: fmt$(d.totalProductRevenue) },
-    { label: 'Shopify Revenue', value: fmt$(d.shopifyProductRevenue) },
-    { label: 'Bid Revenue', value: fmt$(d.bidRevenue) },
+    { label: 'Secondslide Revenue', value: fmt$(d.ssRevenue) },
+    { label: 'TC365 Revenue', value: fmt$(d.tcRevenue) },
     { label: 'Open Pipeline', value: fmtN(d.pipelineCount) + ' bids', small: true },
     { label: 'Unpaid Receivables', value: fmt$(d.totalAR), sub: `${fmtN(d.arCount)} invoices`, small: true },
-    { label: 'Net Cash Position', value: (netPos >= 0 ? '' : '-') + fmt$(netPos), sub: `<span class="${netPos >= 0 ? 'up' : 'down'}">AR ${fmt$(d.totalAR)} - AP ${fmt$(d.totalAP)}</span>`, small: true }
   ]);
 
   const rm = d.revenueMonths || [];
   makeChart('chart-summary-revenue', { type: 'bar', data: { labels: rm.map(m => m.label), datasets: [
-    { label: 'Shopify', data: rm.map(m => m.shopify), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 4, barPercentage: .6 },
-    { label: 'Bids', data: rm.map(m => m.bids), backgroundColor: 'rgba(232,83,29,.7)', borderRadius: 4, barPercentage: .6 }
+    { label: 'Secondslide', data: rm.map(m => m.ss), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 4, barPercentage: .6 },
+    { label: 'TC365', data: rm.map(m => m.tc), backgroundColor: 'rgba(232,83,29,.7)', borderRadius: 4, barPercentage: .6 }
   ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 10, font: { size: 11 } } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } } } } });
 
-  const statuses = Object.keys(d.pipelineStatuses || {});
-  makeChart('chart-summary-pipeline', { type: 'doughnut', data: { labels: statuses, datasets: [{ data: statuses.map(s => d.pipelineStatuses[s]), backgroundColor: statuses.map(s => STATUS_COLORS[s] || '#94a3b8'), borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, padding: 8, font: { size: 11 } } } }, cutout: '55%' } });
+  const pfs = d.preFulfillmentStatuses || {};
+  const pfKeys = Object.keys(pfs);
+  makeChart('chart-summary-pipeline', { type: 'doughnut', data: { labels: pfKeys, datasets: [{ data: pfKeys.map(s => pfs[s]), backgroundColor: pfKeys.map(s => STATUS_COLORS[s] || '#94a3b8'), borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, padding: 6, font: { size: 10 } } } }, cutout: '55%' } });
 
   const aging = d.aging || {};
   makeChart('chart-summary-aging', { type: 'bar', data: { labels: BUCKET_LABELS.map(b => b === 'Current' ? 'Current' : b + ' days'), datasets: [{ data: BUCKET_LABELS.map(b => aging[b] || 0), backgroundColor: BUCKET_COLORS, borderRadius: 4, barPercentage: .6 }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } } });
 
-  makeChart('chart-summary-store', { type: 'doughnut', data: { labels: ['Shopify Product', 'Bids'], datasets: [{ data: [d.shopifyProductRevenue, d.bidRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, padding: 8, font: { size: 11 } } } }, cutout: '55%' } });
+  makeChart('chart-summary-store', { type: 'doughnut', data: { labels: ['Secondslide', 'Team Connection 365'], datasets: [{ data: [d.ssRevenue, d.tcRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, padding: 8, font: { size: 11 } } } }, cutout: '55%' } });
 
   $('summary-loading').style.display = 'none';
   $('summary-content').style.display = '';
 }
 
-/* ── Revenue (from Monthly Rollup) ────────────────────────── */
+/* ── Revenue & Receivables ────────────────────────────────── */
 function renderRevenue(d) {
   if ($('revenue-period-label')) $('revenue-period-label').textContent = d.periodLabel || 'YTD';
+  const recv = snapshot.receivables || {};
   renderMetrics('revenue-metrics', [
     { label: 'Total Product Revenue', value: fmt$(d.totalProductRevenue) },
-    { label: 'Shopify Product Revenue', value: fmt$(d.shopifyProductRevenue), sub: `${fmtPct(d.totalProductRevenue ? (d.shopifyProductRevenue / d.totalProductRevenue) * 100 : 0)} of total` },
-    { label: 'Bid Revenue', value: fmt$(d.bidRevenue), sub: `${fmtPct(d.totalProductRevenue ? (d.bidRevenue / d.totalProductRevenue) * 100 : 0)} of total` },
+    { label: 'Secondslide Revenue', value: fmt$(d.ssRevenue), sub: `${fmtPct(d.totalProductRevenue ? (d.ssRevenue / d.totalProductRevenue) * 100 : 0)} of total` },
+    { label: 'TC365 Revenue', value: fmt$(d.tcRevenue), sub: `${fmtPct(d.totalProductRevenue ? (d.tcRevenue / d.totalProductRevenue) * 100 : 0)} of total` },
     { label: 'Bid Refunds', value: fmt$(d.totalRefunds), sub: `<span class="down">${fmtPct(d.bidRevenue ? (d.totalRefunds / d.bidRevenue) * 100 : 0)} of bids</span>` },
-    { label: 'Total Orders (Shopify)', value: fmtN(d.totalOrders) },
+    { label: 'Unpaid Receivables', value: fmt$(recv.totalUnpaid || 0), sub: `${fmtN(recv.invoiceCount || 0)} invoices` },
   ]);
 
   const rm = d.months || [];
   makeChart('chart-revenue-monthly', { type: 'bar', data: { labels: rm.map(m => m.label), datasets: [
-    { label: 'Shopify Product', data: rm.map(m => m.shopify), backgroundColor: 'rgba(0,200,255,.8)', borderRadius: 4, barPercentage: .6 },
-    { label: 'Bids', data: rm.map(m => m.bids), backgroundColor: 'rgba(232,83,29,.8)', borderRadius: 4, barPercentage: .6 }
+    { label: 'Secondslide', data: rm.map(m => m.ss), backgroundColor: 'rgba(0,200,255,.8)', borderRadius: 4, barPercentage: .6 },
+    { label: 'TC365', data: rm.map(m => m.tc), backgroundColor: 'rgba(232,83,29,.8)', borderRadius: 4, barPercentage: .6 }
   ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 10, font: { size: 11 } } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } } } } });
 
-  makeChart('chart-revenue-split', { type: 'doughnut', data: { labels: ['Shopify Product', 'Bids'], datasets: [{ data: [d.shopifyProductRevenue, d.bidRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } }, cutout: '55%' } });
+  // Receivables aging chart
+  const aging = recv.aging || {};
+  makeChart('chart-revenue-aging', { type: 'doughnut', data: { labels: BUCKET_LABELS.map(b => b === 'Current' ? 'Current' : b + ' days'), datasets: [{ data: BUCKET_LABELS.map(b => aging[b] || 0), backgroundColor: BUCKET_COLORS, borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } }, cutout: '55%' } });
+
+  // Unpaid invoices table
+  if (recv.rows) renderTable('revenue-invr-table-wrap', 'Unpaid Invoices', ['Invoice', 'Account', 'Status', 'Amount Due', 'Due Date', 'Aging', 'Created'],
+    recv.rows.map(r => [r[0], r[1], `<span class="pill pill-amber">${r[2]}</span>`, fmt$d(r[3]), r[4], `<span class="pill ${{'Current':'pill-green','1-30':'pill-blue','31-60':'pill-amber','61-90':'pill-red','90+':'pill-red'}[r[5]] || 'pill-gray'}">${r[5] === 'Current' ? 'Current' : r[5] + ' days'}</span>`, r[6]]));
 
   $('revenue-loading').style.display = 'none';
   $('revenue-content').style.display = '';
@@ -991,24 +983,6 @@ function renderRegistration(d) {
   $('registration-content').style.display = '';
 }
 
-/* ── Receivables (from Unpaid view) ───────────────────────── */
-function renderReceivables(d) {
-  renderMetrics('receivables-metrics', [
-    { label: 'Total Unpaid', value: fmt$(d.totalUnpaid), sub: `${fmtN(d.invoiceCount)} invoices` },
-    { label: 'Past Due', value: fmt$(d.pastDue), sub: `<span class="${d.pastDue > 0 ? 'down' : 'up'}">${fmtN(d.invoiceCount - (d.agingCount?.Current || 0))} invoices</span>` },
-    { label: 'Avg Invoice', value: fmt$d(d.avgInvoice), small: true },
-    { label: 'Current (Not Due)', value: fmt$(d.aging?.Current || 0), sub: `${fmtN(d.agingCount?.Current || 0)} invoices` },
-    { label: '90+ Days', value: fmt$(d.aging?.['90+'] || 0), sub: `<span class="down">${fmtN(d.agingCount?.['90+'] || 0)} invoices</span>` }
-  ]);
-
-  const aging = d.aging || {};
-  makeChart('chart-receivables-aging', { type: 'doughnut', data: { labels: BUCKET_LABELS.map(b => b === 'Current' ? 'Current' : b + ' days'), datasets: [{ data: BUCKET_LABELS.map(b => aging[b] || 0), backgroundColor: BUCKET_COLORS, borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } }, cutout: '55%' } });
-
-  if (d.rows) renderTable('receivables-table-wrap', 'Unpaid Invoices (Unpaid View)', ['Invoice', 'Account', 'Status', 'Amount Due', 'Due Date', 'Aging', 'Created'],
-    d.rows.map(r => [r[0], r[1], `<span class="pill pill-amber">${r[2]}</span>`, fmt$d(r[3]), r[4], `<span class="pill ${{'Current':'pill-green','1-30':'pill-blue','31-60':'pill-amber','61-90':'pill-red','90+':'pill-red'}[r[5]] || 'pill-gray'}">${r[5] === 'Current' ? 'Current' : r[5] + ' days'}</span>`, r[6]]));
-  $('receivables-loading').style.display = 'none';
-  $('receivables-content').style.display = '';
-}
 
 
 /* ═══════════════════════════════════════════════════════════════
