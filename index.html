@@ -623,11 +623,15 @@ async function tryRestoreSession() {
 /* ═══════════════════════════════════════════════════════════════
    AIRTABLE HELPERS
    ═══════════════════════════════════════════════════════════════ */
-async function atFetch(url) {
+async function atFetch(url, retries = 2) {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${API_KEY}` } });
   if (res.status === 429) {
     await new Promise(r => setTimeout(r, 1200));
-    return atFetch(url);
+    return atFetch(url, retries);
+  }
+  if ((res.status === 502 || res.status === 503 || res.status === 504) && retries > 0) {
+    await new Promise(r => setTimeout(r, 2000));
+    return atFetch(url, retries - 1);
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1182,14 +1186,15 @@ async function loadBids() {
   const { start, end } = getDateRange();
   showProgress(10);
 
+  // Bid requests don't have reliable created dates matching bids, so fetch all with timing data
   const [bids, bidRequests] = await Promise.all([
     listRecords(TO_BASE, T_BIDS, {
       filterByFormula: dateFormula(F_BID_CREATED, start, end),
       fields: [F_BID_ID, F_BID_STATUS, F_BID_DETAIL_STATUS, F_BID_CREATED, F_BID_COMPLETE_DATE, F_BID_ACCOUNT, F_BID_ACCOUNT_OWNER, F_BID_ACCOUNT_TYPE, F_BID_LINE_ITEMS, F_BID_POPUP]
     }),
     listRecords(TO_BASE, T_BID_REQUESTS, {
-      filterByFormula: dateFormula(F_BR_CREATED, start, end),
-      fields: [F_BR_CREATED, F_BR_MIN_SUBMITTED, F_BR_MIN_PENDING_CS, F_BR_MIN_PENDING_SE, F_BR_MIN_IN_PROGRESS, F_BR_MIN_BID_CREATED, F_BR_MIN_OPEN, F_BR_MIN_READY_FULFILL, F_BR_MIN_FULFILLED, F_BR_MIN_FLAGGED, F_BR_STATUS, F_BR_ACCOUNT_NAME, F_BR_ACCOUNT_OWNER]
+      filterByFormula: `OR(${[F_BR_MIN_SUBMITTED, F_BR_MIN_IN_PROGRESS, F_BR_MIN_OPEN, F_BR_MIN_READY_FULFILL, F_BR_MIN_FULFILLED].map(f => `{${f}}>0`).join(',')})`,
+      fields: [F_BR_CREATED, F_BR_MIN_SUBMITTED, F_BR_MIN_PENDING_CS, F_BR_MIN_PENDING_SE, F_BR_MIN_IN_PROGRESS, F_BR_MIN_BID_CREATED, F_BR_MIN_OPEN, F_BR_MIN_READY_FULFILL, F_BR_MIN_FULFILLED, F_BR_MIN_FLAGGED, F_BR_ACCOUNT_NAME, F_BR_ACCOUNT_OWNER]
     })
   ]);
   showProgress(65);
@@ -1361,12 +1366,19 @@ async function loadBids() {
 async function loadLedger() {
   showProgress(10);
 
-  // Fetch supplier orders and supplier order items
+  // Fetch supplier orders and SOIs with date filter to avoid timeouts
+  // Use 12-month lookback for comprehensive coverage
+  const lookback = new Date();
+  lookback.setFullYear(lookback.getFullYear() - 1);
+  const lbDate = lookback.toISOString().split('T')[0];
+
   const [supplierOrders, supplierOrderItems] = await Promise.all([
     listRecords(SL_BASE, T_SL_SO, {
+      filterByFormula: `IS_AFTER({${F_SO_CREATED}}, '${lbDate}')`,
       fields: [F_SO_SUPPLIER, F_SO_ACTUALS_ADDED, F_SO_CREATED, F_SO_SOI]
     }),
     listRecords(SL_BASE, T_SL_SOI, {
+      filterByFormula: `IS_AFTER({${F_SOI_CREATED}}, '${lbDate}')`,
       fields: [F_SOI_ACTUAL_COST, F_SOI_SUPPLIER, F_SOI_OI, F_SOI_CREATED]
     })
   ]);
