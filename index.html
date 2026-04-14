@@ -314,17 +314,7 @@ tailwind.config = {
     <div class="top-bar">
       <div class="top-bar-title" id="page-title">Executive Summary</div>
       <div class="top-bar-controls">
-        <select class="date-select" id="date-preset" onchange="handlePresetChange()">
-          <option value="mtd">Month to Date</option>
-          <option value="qtd">Quarter to Date</option>
-          <option value="ytd" selected>Year to Date</option>
-          <option value="last30">Last 30 Days</option>
-          <option value="last90">Last 90 Days</option>
-          <option value="2025">Full Year 2025</option>
-          <option value="custom">Custom Range</option>
-        </select>
-        <input type="date" class="date-input" id="date-start" style="display:none" onchange="handleCustomDate()">
-        <input type="date" class="date-input" id="date-end" style="display:none" onchange="handleCustomDate()">
+        <span id="snapshot-badge" style="font-size:12px;color:#94a3b8;background:#f1f5f9;padding:6px 14px;border-radius:8px">YTD Snapshot &mdash; updated daily at 6 AM ET</span>
         <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
           Refresh
@@ -441,7 +431,7 @@ tailwind.config = {
 /* ═══════════════════════════════════════════════════════════════
    CONFIGURATION & AUTH
    ═══════════════════════════════════════════════════════════════ */
-const ENCRYPTED_KEY = 'pC93AbGI5HkOVU6fwC0Sd2fU+ZdPYWfWI0CElb78RBd92zUS5A5Wt08ED9TIFp/iID6ZuzvrOiNkBVT/eMJykw5Croc9Sbvyd8MiZ9/OAUtBZ9vA857W00ixmm5RYL5Zwk0xSkfDrd1qh3wnRwWGUrVrARjWqQocFw3CWXkO';
+const ENCRYPTED_KEY = 'qN4m/Vtto1nsJy7hqd8+Fv0GfgWP6a5ft3uc/7u84YXLM9e+xxxz6lqQfnlsYNHuSk5qoZqk8T2xaRWVCkLuGZKW9KZ5R0ILwfAjHqVA5Sx6/gmjlY4lvJ5uM25mL9nYQD0hkN5lRMK1GJOALh4VOb9QSLt0D3B+AO4qkJjR';
 
 const AT_BASE = 'https://api.airtable.com/v0';
 const TO_BASE = 'appNQwRzxu0k5F884';
@@ -621,54 +611,47 @@ async function tryRestoreSession() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   AIRTABLE HELPERS
+   SNAPSHOT LOADER — single API call, instant render
    ═══════════════════════════════════════════════════════════════ */
-async function atFetch(url, retries = 2) {
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${API_KEY}` } });
-  if (res.status === 429) {
-    await new Promise(r => setTimeout(r, 1200));
-    return atFetch(url, retries);
-  }
-  if ((res.status === 502 || res.status === 503 || res.status === 504) && retries > 0) {
-    await new Promise(r => setTimeout(r, 2000));
-    return atFetch(url, retries - 1);
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error?.message || `Airtable ${res.status}`);
-  }
-  return res.json();
-}
+const LOG_BASE = 'appimnmxXM9U9PvuO';
+const T_SNAPSHOTS = 'tblrqg7tmA11axG6k';
+const SF_SUMMARY = 'fld9oJPHqUilA6AE7';
+const SF_REVENUE = 'fldize5hC9pf6USfU';
+const SF_BIDS = 'fldykGzZxZL4BXc5x';
+const SF_LEDGER = 'fldrJbMRGaswJGywi';
+const SF_REG = 'fldEVfJk6JFoexzSu';
+const SF_RECV = 'fldCM7cHdf32HkcaJ';
+const SF_CASH = 'fld9BZIvPhcJc8hHI';
+const SF_DATE = 'fldsuLtO1UTJ5KN3b';
+const SF_COMPUTED = 'fldvuqpdgovTjlOre';
+const SF_STATUS = 'fldA4LzocbFmMPooG';
 
-async function listRecords(baseId, tableId, params = {}) {
-  const records = [];
-  let offset = null;
-  do {
-    const url = new URL(`${AT_BASE}/${baseId}/${tableId}`);
-    url.searchParams.set('returnFieldsByFieldId', 'true');
-    for (const [k, v] of Object.entries(params)) {
-      if (k === 'fields' && Array.isArray(v)) v.forEach(f => url.searchParams.append('fields[]', f));
-      else if (Array.isArray(v)) v.forEach(val => url.searchParams.append(`${k}[]`, val));
-      else url.searchParams.set(k, v);
-    }
-    if (offset) url.searchParams.set('offset', offset);
-    const data = await atFetch(url.toString());
-    records.push(...(data.records || []));
-    offset = data.offset || null;
-  } while (offset);
-  return records;
-}
+let snapshot = null;  // cached snapshot data
 
-function fv(fields, key) {
-  const v = fields?.[key];
-  if (Array.isArray(v)) return v[0] ?? '';
-  return v ?? '';
-}
-
-function fvNum(fields, key) {
-  const v = fv(fields, key);
-  const n = parseFloat(v);
-  return isNaN(n) ? 0 : n;
+async function fetchSnapshot() {
+  const url = new URL(`${AT_BASE}/${LOG_BASE}/${T_SNAPSHOTS}`);
+  url.searchParams.set('returnFieldsByFieldId', 'true');
+  url.searchParams.set('filterByFormula', `{${SF_STATUS}}="current"`);
+  url.searchParams.set('maxRecords', '1');
+  url.searchParams.set('sort[0][field]', SF_DATE);
+  url.searchParams.set('sort[0][direction]', 'desc');
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${API_KEY}` } });
+  if (!res.ok) throw new Error(`Snapshot fetch failed: ${res.status}`);
+  const data = await res.json();
+  if (!data.records?.length) throw new Error('No snapshot found. Run the compute script first.');
+  const rec = data.records[0].fields;
+  snapshot = {
+    date: rec[SF_DATE],
+    computedAt: rec[SF_COMPUTED],
+    summary: JSON.parse(rec[SF_SUMMARY] || '{}'),
+    revenue: JSON.parse(rec[SF_REVENUE] || '{}'),
+    bids: JSON.parse(rec[SF_BIDS] || '{}'),
+    ledger: JSON.parse(rec[SF_LEDGER] || '{}'),
+    registration: JSON.parse(rec[SF_REG] || '{}'),
+    receivables: JSON.parse(rec[SF_RECV] || '{}'),
+    cashflow: JSON.parse(rec[SF_CASH] || '{}'),
+  };
+  return snapshot;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -780,44 +763,59 @@ function switchTab(tab) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
   document.querySelectorAll('.tab-panel').forEach(el => el.classList.toggle('active', el.id === 'panel-' + tab));
   $('page-title').textContent = TAB_TITLES[tab] || tab;
-  if (!dataCache[tab]) loadTabData(tab);
+  if (!dataCache[tab]) renderTab(tab);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DATA LOADING
+   DATA LOADING — all from pre-computed snapshot
    ═══════════════════════════════════════════════════════════════ */
-async function loadTabData(tab) {
+function renderTab(tab) {
   try {
+    if (!snapshot) return;
     switch (tab) {
-      case 'summary': await loadSummary(); break;
-      case 'revenue': await loadRevenue(); break;
-      case 'bids': await loadBids(); break;
-      case 'ledger': await loadLedger(); break;
-      case 'registration': await loadRegistration(); break;
-      case 'receivables': await loadReceivables(); break;
-      case 'cashflow': await loadCashFlow(); break;
+      case 'summary': renderSummary(snapshot.summary); break;
+      case 'revenue': renderRevenue(snapshot.revenue); break;
+      case 'bids': renderBids(snapshot.bids); break;
+      case 'ledger': renderLedger(snapshot.ledger); break;
+      case 'registration': renderRegistration(snapshot.registration); break;
+      case 'receivables': renderReceivables(snapshot.receivables); break;
+      case 'cashflow': renderCashFlow(snapshot.cashflow); break;
     }
+    dataCache[tab] = true;
   } catch (err) {
-    console.error(`Error loading ${tab}:`, err);
+    console.error(`Error rendering ${tab}:`, err);
     const loadEl = $(`${tab}-loading`);
-    if (loadEl) loadEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">!</div><div class="empty-state-text">Error loading data: ${err.message}</div></div>`;
+    if (loadEl) loadEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">!</div><div class="empty-state-text">Error: ${err.message}</div></div>`;
   }
 }
 
 async function refreshData() {
-  dataCache[currentTab] = null;
-  const contentEl = $(`${currentTab}-content`);
-  const loadEl = $(`${currentTab}-loading`);
-  if (contentEl) contentEl.style.display = 'none';
-  if (loadEl) { loadEl.style.display = ''; loadEl.innerHTML = '<div class="loading-spinner"></div><div class="loading-text">Refreshing data...</div>'; }
+  // Re-fetch snapshot from Airtable
   $('refresh-btn').classList.add('spinning');
-  await loadTabData(currentTab);
+  try {
+    snapshot = null;
+    Object.keys(dataCache).forEach(k => delete dataCache[k]);
+    await fetchSnapshot();
+    renderTab(currentTab);
+    updateSnapshotInfo();
+  } catch (e) { console.error(e); }
   $('refresh-btn').classList.remove('spinning');
 }
 
+function updateSnapshotInfo() {
+  if (!snapshot) return;
+  const d = snapshot.computedAt ? new Date(snapshot.computedAt) : null;
+  $('last-refresh').textContent = d ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : snapshot.date || '--';
+}
+
 async function initDashboard() {
-  await loadSummary();
-  $('last-refresh').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  try {
+    await fetchSnapshot();
+    updateSnapshotInfo();
+    renderTab('summary');
+  } catch (err) {
+    $('summary-loading').innerHTML = `<div class="empty-state"><div class="empty-state-icon">!</div><div class="empty-state-text">${err.message}</div></div>`;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -890,869 +888,191 @@ function makeChart(canvasId, config) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   EXECUTIVE SUMMARY
+   RENDER TABS FROM SNAPSHOT DATA
    ═══════════════════════════════════════════════════════════════ */
-async function loadSummary() {
-  const { start, end } = getDateRange();
-  showProgress(10);
 
-  // Parallel fetches
-  const [orders, bids, invr, invp] = await Promise.all([
-    listRecords(SL_BASE, T_SL_ORDERS, {
-      filterByFormula: dateFormula(F_ORD_TS, start, end),
-      fields: [F_ORD_TS, F_ORD_TOTAL, F_ORD_REFUND, F_ORD_DOMAIN, F_ORD_SS_PROFIT, F_ORD_TEAM_PROFIT, F_ORD_NET]
-    }),
-    listRecords(TO_BASE, T_BIDS, {
-      filterByFormula: `NOT(OR({${F_BID_STATUS}}="Done",{${F_BID_STATUS}}="Archived",{${F_BID_STATUS}}="Void"))`,
-      fields: [F_BID_ID, F_BID_STATUS, F_BID_CREATED, F_BID_ACCOUNT, F_BID_ACCOUNT_OWNER]
-    }),
-    listRecords(TO_BASE, T_INVR, {
-      filterByFormula: `{${F_INVR_STATUS}}="Open"`,
-      fields: [F_INVR_ID, F_INVR_AMOUNT_DUE, F_INVR_DUE_DATE, F_INVR_ACCOUNT, F_INVR_ACCOUNT_OWNER]
-    }),
-    listRecords(TO_BASE, T_INVP, {
-      filterByFormula: `OR({${F_INVP_STATUS}}="Open",{${F_INVP_STATUS}}="Pending")`,
-      fields: [F_INVP_ID, F_INVP_AMOUNT, F_INVP_STATUS, F_INVP_VENDOR]
-    })
-  ]);
-  showProgress(70);
+const STATUS_COLORS = { 'Pipeline': '#94a3b8', 'Submitted': '#a78bfa', 'Open': '#60a5fa', 'Working': '#818cf8', 'Awaiting Customer Response': '#f59e0b', 'Revisions Needed': '#f87171', 'Committed': '#8b5cf6', 'Ready for Pop Up': '#22d3ee', 'Open Popup': '#06b6d4', 'Ready for Fulfillment': '#2dd4bf', 'Fulfilled': '#06b6d4', 'Payment Needed': '#fb923c', 'Awaiting Payment': '#fbbf24', 'Missing INVP': '#f97316', 'Fulfillment Issue': '#ef4444', 'Ready for Review': '#a3e635', 'Done': '#10b981', 'Archived': '#cbd5e1', 'Void': '#e2e8f0', 'Lost': '#9ca3af', 'Save for Later': '#d1d5db', 'Missing Info': '#fca5a5' };
+const BUCKET_LABELS = ['Current', '1-30', '31-60', '61-90', '90+'];
+const BUCKET_COLORS = ['#34d399', '#60a5fa', '#f59e0b', '#f97316', '#ef4444'];
+const PILL_MAP = { 'Done': 'pill-green', 'Fulfilled': 'pill-cyan', 'Open Popup': 'pill-cyan', 'Ready for Fulfillment': 'pill-blue', 'Payment Needed': 'pill-amber', 'Awaiting Payment': 'pill-amber', 'Awaiting Customer Response': 'pill-amber', 'Fulfillment Issue': 'pill-red', 'Revisions Needed': 'pill-red', 'Archived': 'pill-gray', 'Void': 'pill-gray', 'Lost': 'pill-gray', 'Pipeline': 'pill-gray', 'Submitted': 'pill-purple' };
 
-  // Revenue calculations
-  let totalRevenue = 0, totalRefunds = 0, ssRevenue = 0, tcRevenue = 0;
-  let ssProfit = 0;
-  const monthlyRevenue = {};
-
-  orders.forEach(r => {
-    const f = r.fields;
-    const total = fvNum(f, F_ORD_TOTAL);
-    const refund = fvNum(f, F_ORD_REFUND);
-    const domain = fv(f, F_ORD_DOMAIN) || '';
-    const ts = fv(f, F_ORD_TS);
-    const net = total - refund;
-
-    totalRevenue += net;
-    totalRefunds += refund;
-    ssProfit += fvNum(f, F_ORD_SS_PROFIT);
-
-    if (domain.toLowerCase().includes('teamconnection')) tcRevenue += net;
-    else ssRevenue += net;
-
-    if (ts) {
-      const mk = monthKey(ts);
-      monthlyRevenue[mk] = (monthlyRevenue[mk] || 0) + net;
-    }
-  });
-
-  // Pipeline
-  const pipelineCount = bids.length;
-  const statusCounts = {};
-  bids.forEach(r => {
-    const s = fv(r.fields, F_BID_STATUS) || 'Unknown';
-    statusCounts[s] = (statusCounts[s] || 0) + 1;
-  });
-
-  // Receivables
-  let totalAR = 0;
-  const agingBuckets = { 'Current': 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
-  invr.forEach(r => {
-    const amt = fvNum(r.fields, F_INVR_AMOUNT_DUE);
-    totalAR += amt;
-    const bucket = agingBucket(fv(r.fields, F_INVR_DUE_DATE));
-    agingBuckets[bucket] = (agingBuckets[bucket] || 0) + amt;
-  });
-
-  // Payables
-  let totalAP = 0;
-  invp.forEach(r => { totalAP += fvNum(r.fields, F_INVP_AMOUNT); });
-
-  showProgress(90);
-
-  // Render metrics
+function renderSummary(d) {
+  const netPos = d.totalAR - d.totalAP;
   renderMetrics('summary-metrics', [
-    { label: 'Net Revenue', value: fmt$(totalRevenue), sub: `${fmtN(orders.length)} orders` },
-    { label: 'Secondslide Profit', value: fmt$(ssProfit), sub: `${fmtPct(totalRevenue ? (ssProfit / totalRevenue) * 100 : 0)} margin` },
-    { label: 'Open Pipeline', value: fmtN(pipelineCount) + ' bids', small: true },
-    { label: 'Unpaid Receivables', value: fmt$(totalAR), sub: `${fmtN(invr.length)} invoices`, small: true },
-    { label: 'Open Payables', value: fmt$(totalAP), sub: `${fmtN(invp.length)} invoices`, small: true },
-    { label: 'Net Cash Position', value: (totalAR - totalAP >= 0 ? '' : '-') + fmt$(totalAR - totalAP), sub: `<span class="${totalAR - totalAP >= 0 ? 'up' : 'down'}">AR - AP</span>`, small: true }
+    { label: 'Net Revenue (YTD)', value: fmt$(d.totalRevenue), sub: `${fmtN(d.orderCount)} orders` },
+    { label: 'Secondslide Profit', value: fmt$(d.ssProfit), sub: `${fmtPct(d.totalRevenue ? (d.ssProfit / d.totalRevenue) * 100 : 0)} margin` },
+    { label: 'Open Pipeline', value: fmtN(d.pipelineCount) + ' bids', small: true },
+    { label: 'Unpaid Receivables', value: fmt$(d.totalAR), sub: `${fmtN(d.arCount)} invoices`, small: true },
+    { label: 'Open Payables', value: fmt$(d.totalAP), sub: `${fmtN(d.apCount)} invoices`, small: true },
+    { label: 'Net Cash Position', value: (netPos >= 0 ? '' : '-') + fmt$(netPos), sub: `<span class="${netPos >= 0 ? 'up' : 'down'}">AR - AP</span>`, small: true }
   ]);
 
-  // Revenue trend chart
-  const months = Object.keys(monthlyRevenue).sort();
-  makeChart('chart-summary-revenue', {
-    type: 'bar',
-    data: {
-      labels: months.map(monthLabel),
-      datasets: [{ label: 'Net Revenue', data: months.map(m => monthlyRevenue[m]), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .6 }]
-    },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-  });
+  const months = Object.keys(d.monthlyRevenue).sort();
+  makeChart('chart-summary-revenue', { type: 'bar', data: { labels: d.monthLabels || months.map(monthLabel), datasets: [{ label: 'Net Revenue', data: months.map(m => d.monthlyRevenue[m]?.total || 0), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .6 }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // Pipeline chart
-  const statuses = Object.keys(statusCounts);
-  const statusColors = { 'Pipeline': '#94a3b8', 'Submitted': '#a78bfa', 'Open': '#60a5fa', 'Working': '#818cf8', 'Awaiting Customer Response': '#f59e0b', 'Revisions Needed': '#f87171', 'Committed': '#8b5cf6', 'Ready for Pop Up': '#22d3ee', 'Open Popup': '#06b6d4', 'Ready for Fulfillment': '#2dd4bf', 'Fulfilled': '#06b6d4', 'Payment Needed': '#fb923c', 'Awaiting Payment': '#fbbf24', 'Missing INVP': '#f97316', 'Fulfillment Issue': '#ef4444', 'Ready for Review': '#a3e635', 'Missing Info': '#fca5a5' };
-  makeChart('chart-summary-pipeline', {
-    type: 'doughnut',
-    data: {
-      labels: statuses,
-      datasets: [{ data: statuses.map(s => statusCounts[s]), backgroundColor: statuses.map(s => statusColors[s] || '#94a3b8'), borderWidth: 0 }]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 12 } } } }, cutout: '55%' }
-  });
+  const statuses = Object.keys(d.pipelineStatuses || {});
+  makeChart('chart-summary-pipeline', { type: 'doughnut', data: { labels: statuses, datasets: [{ data: statuses.map(s => d.pipelineStatuses[s]), backgroundColor: statuses.map(s => STATUS_COLORS[s] || '#94a3b8'), borderWidth: 0 }] }, options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 12 } } } }, cutout: '55%' } });
 
-  // Aging chart
-  const bucketLabels = ['Current', '1-30', '31-60', '61-90', '90+'];
-  const bucketColors = ['#34d399', '#60a5fa', '#f59e0b', '#f97316', '#ef4444'];
-  makeChart('chart-summary-aging', {
-    type: 'bar',
-    data: {
-      labels: bucketLabels.map(b => b === 'Current' ? 'Current' : b + ' days'),
-      datasets: [{ label: 'Amount', data: bucketLabels.map(b => agingBuckets[b] || 0), backgroundColor: bucketColors, borderRadius: 6, barPercentage: .6 }]
-    },
-    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } }
-  });
+  const aging = d.aging || {};
+  makeChart('chart-summary-aging', { type: 'bar', data: { labels: BUCKET_LABELS.map(b => b === 'Current' ? 'Current' : b + ' days'), datasets: [{ label: 'Amount', data: BUCKET_LABELS.map(b => aging[b] || 0), backgroundColor: BUCKET_COLORS, borderRadius: 6, barPercentage: .6 }] }, options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } } });
 
-  // Store split chart
-  makeChart('chart-summary-store', {
-    type: 'doughnut',
-    data: {
-      labels: ['Secondslide', 'Team Connection 365'],
-      datasets: [{ data: [ssRevenue, tcRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 12 } } } }, cutout: '55%' }
-  });
+  makeChart('chart-summary-store', { type: 'doughnut', data: { labels: ['Secondslide', 'Team Connection 365'], datasets: [{ data: [d.ssRevenue, d.tcRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }] }, options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 12 } } } }, cutout: '55%' } });
 
   $('summary-loading').style.display = 'none';
   $('summary-content').style.display = '';
-  dataCache.summary = true;
-  showProgress(0);
-  $('last-refresh').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   REVENUE TAB
-   ═══════════════════════════════════════════════════════════════ */
-async function loadRevenue() {
-  const { start, end } = getDateRange();
-  showProgress(10);
-
-  const [orders, stores] = await Promise.all([
-    listRecords(SL_BASE, T_SL_ORDERS, {
-      filterByFormula: dateFormula(F_ORD_TS, start, end),
-      fields: [F_ORD_TS, F_ORD_TOTAL, F_ORD_REFUND, F_ORD_DOMAIN, F_ORD_SS_PROFIT, F_ORD_TEAM_PROFIT, F_ORD_NET, F_ORD_GROSS, F_ORD_MASTER_STORES]
-    }),
-    listRecords(SL_BASE, T_SL_STORES, {
-      fields: [F_STORE_ID, F_STORE_NAME, F_STORE_ACCOUNT, F_STORE_CREATED, F_STORE_OWNER, F_STORE_TYPE]
-    })
-  ]);
-  showProgress(60);
-
-  // Build store lookup
-  const storeMap = {};
-  stores.forEach(r => {
-    storeMap[r.id] = {
-      id: fv(r.fields, F_STORE_ID),
-      name: fv(r.fields, F_STORE_ACCOUNT) || fv(r.fields, F_STORE_NAME),
-      created: fv(r.fields, F_STORE_CREATED),
-      owner: fv(r.fields, F_STORE_OWNER),
-      type: fv(r.fields, F_STORE_TYPE)
-    };
-  });
-
-  // New accounts (created in 2026)
-  const newStoreIds = new Set();
-  Object.values(storeMap).forEach(s => {
-    if (s.created && new Date(s.created).getFullYear() === 2026) newStoreIds.add(s.id);
-  });
-
-  let totalRevenue = 0, totalRefunds = 0, ssRevenue = 0, tcRevenue = 0, ssProfit = 0;
-  const monthlyData = {}; // { key: { ss, tc, total } }
-  const newAccountRev = { 'Q1 2026': 0, 'Q2 2026': 0, 'Q3 2026': 0, 'Q4 2026': 0 };
-  let newAccountTotal = 0;
-  const storeRevenue = {}; // { storeName: { revenue, orders, profit, domain } }
-
-  orders.forEach(r => {
-    const f = r.fields;
-    const total = fvNum(f, F_ORD_TOTAL);
-    const refund = fvNum(f, F_ORD_REFUND);
-    const net = total - refund;
-    const domain = (fv(f, F_ORD_DOMAIN) || '').toLowerCase();
-    const ts = fv(f, F_ORD_TS);
-    const profit = fvNum(f, F_ORD_SS_PROFIT);
-    const isTC = domain.includes('teamconnection');
-
-    totalRevenue += net;
-    totalRefunds += refund;
-    ssProfit += profit;
-    if (isTC) tcRevenue += net; else ssRevenue += net;
-
-    if (ts) {
-      const mk = monthKey(ts);
-      if (!monthlyData[mk]) monthlyData[mk] = { ss: 0, tc: 0, total: 0 };
-      monthlyData[mk].total += net;
-      if (isTC) monthlyData[mk].tc += net; else monthlyData[mk].ss += net;
-    }
-
-    // Check if order belongs to new account
-    const storeLinks = f[F_ORD_MASTER_STORES];
-    if (Array.isArray(storeLinks)) {
-      storeLinks.forEach(storeRecId => {
-        const store = storeMap[storeRecId];
-        if (store) {
-          // Store revenue tracking
-          const sKey = store.name || store.id;
-          if (!storeRevenue[sKey]) storeRevenue[sKey] = { revenue: 0, orders: 0, profit: 0, domain: isTC ? 'TC365' : 'SS', owner: store.owner };
-          storeRevenue[sKey].revenue += net;
-          storeRevenue[sKey].orders += 1;
-          storeRevenue[sKey].profit += profit;
-
-          if (newStoreIds.has(store.id) && ts) {
-            const q = quarterOf(ts);
-            if (newAccountRev[q] !== undefined) newAccountRev[q] += net;
-            newAccountTotal += net;
-          }
-        }
-      });
-    }
-  });
-  showProgress(85);
-
-  // Render metrics
+/* ── Revenue ─────────────────────────────────────────────────── */
+function renderRevenue(d) {
   renderMetrics('revenue-metrics', [
-    { label: 'Net Revenue', value: fmt$(totalRevenue) },
-    { label: 'Secondslide Revenue', value: fmt$(ssRevenue), sub: `${fmtPct(totalRevenue ? (ssRevenue / totalRevenue) * 100 : 0)} of total` },
-    { label: 'TC365 Revenue', value: fmt$(tcRevenue), sub: `${fmtPct(totalRevenue ? (tcRevenue / totalRevenue) * 100 : 0)} of total` },
-    { label: 'Total Refunds', value: fmt$(totalRefunds), sub: `<span class="down">${fmtPct(totalRevenue ? (totalRefunds / (totalRevenue + totalRefunds)) * 100 : 0)} rate</span>` },
-    { label: 'Gross Margin', value: fmtPct(totalRevenue ? (ssProfit / totalRevenue) * 100 : 0) },
-    { label: 'New Account Revenue (2026)', value: fmt$(newAccountTotal), sub: `${newStoreIds.size} new accounts` }
+    { label: 'Net Revenue', value: fmt$(d.totalRevenue) },
+    { label: 'Secondslide Revenue', value: fmt$(d.ssRevenue), sub: `${fmtPct(d.totalRevenue ? (d.ssRevenue / d.totalRevenue) * 100 : 0)} of total` },
+    { label: 'TC365 Revenue', value: fmt$(d.tcRevenue), sub: `${fmtPct(d.totalRevenue ? (d.tcRevenue / d.totalRevenue) * 100 : 0)} of total` },
+    { label: 'Total Refunds', value: fmt$(d.totalRefunds), sub: `<span class="down">${fmtPct(d.totalRevenue ? (d.totalRefunds / (d.totalRevenue + d.totalRefunds)) * 100 : 0)} rate</span>` },
+    { label: 'Gross Margin', value: fmtPct(d.totalRevenue ? (d.ssProfit / d.totalRevenue) * 100 : 0) },
+    { label: 'New Account Revenue', value: fmt$(d.newAccountTotal), sub: `${d.newAccountCount} new accounts` }
   ]);
 
-  $('revenue-chart-badge').textContent = $('date-preset').options[$('date-preset').selectedIndex].text;
+  const months = Object.keys(d.monthly || {}).sort();
+  makeChart('chart-revenue-monthly', { type: 'bar', data: { labels: d.monthLabels || months.map(monthLabel), datasets: [
+    { label: 'Secondslide', data: months.map(m => d.monthly[m]?.ss || 0), backgroundColor: 'rgba(0,200,255,.8)', borderRadius: 4, barPercentage: .6 },
+    { label: 'TC365', data: months.map(m => d.monthly[m]?.tc || 0), backgroundColor: 'rgba(232,83,29,.8)', borderRadius: 4, barPercentage: .6 }
+  ] }, options: { responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } } } } });
 
-  // Monthly revenue chart (stacked)
-  const months = Object.keys(monthlyData).sort();
-  makeChart('chart-revenue-monthly', {
-    type: 'bar',
-    data: {
-      labels: months.map(monthLabel),
-      datasets: [
-        { label: 'Secondslide', data: months.map(m => monthlyData[m].ss), backgroundColor: 'rgba(0,200,255,.8)', borderRadius: 4, barPercentage: .6 },
-        { label: 'Team Connection 365', data: months.map(m => monthlyData[m].tc), backgroundColor: 'rgba(232,83,29,.8)', borderRadius: 4, barPercentage: .6 }
-      ]
-    },
-    options: {
-      responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } },
-      scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } } }
-    }
-  });
+  makeChart('chart-revenue-store', { type: 'doughnut', data: { labels: ['Secondslide', 'TC365'], datasets: [{ data: [d.ssRevenue, d.tcRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }] }, options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 12 } } } }, cutout: '55%' } });
 
-  // Revenue by store chart
-  makeChart('chart-revenue-store', {
-    type: 'doughnut',
-    data: {
-      labels: ['Secondslide', 'Team Connection 365'],
-      datasets: [{ data: [ssRevenue, tcRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 12 } } } }, cutout: '55%' }
-  });
+  const qLabels = Object.keys(d.newAccountByQuarter || {});
+  makeChart('chart-revenue-new-accounts', { type: 'bar', data: { labels: qLabels, datasets: [{ label: 'New Account Revenue', data: qLabels.map(q => d.newAccountByQuarter[q]), backgroundColor: ['#34d399', '#60a5fa', '#a78bfa', '#f59e0b'], borderRadius: 6, barPercentage: .5 }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // New account revenue by quarter
-  const qLabels = Object.keys(newAccountRev);
-  makeChart('chart-revenue-new-accounts', {
-    type: 'bar',
-    data: {
-      labels: qLabels,
-      datasets: [{ label: 'New Account Revenue', data: qLabels.map(q => newAccountRev[q]), backgroundColor: ['#34d399', '#60a5fa', '#a78bfa', '#f59e0b'], borderRadius: 6, barPercentage: .5 }]
-    },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-  });
-
-  // Revenue by store table
-  const storeRows = Object.entries(storeRevenue)
-    .sort((a, b) => b[1].revenue - a[1].revenue)
-    .map(([name, d]) => [name, d.domain, d.owner || '-', fmtN(d.orders), fmt$d(d.revenue), fmt$d(d.profit)]);
-  renderTable('revenue-table-wrap', 'Revenue by Account', ['Account', 'Store', 'Owner', 'Orders', 'Revenue', 'SS Profit'], storeRows, { maxRows: 50 });
-
+  if (d.topStores) renderTable('revenue-table-wrap', 'Revenue by Account', ['Account', 'Store', 'Owner', 'Orders', 'Revenue', 'SS Profit'], d.topStores.map(r => [r[0], r[1], r[2], fmtN(r[3]), fmt$d(r[4]), fmt$d(r[5])]));
   $('revenue-loading').style.display = 'none';
   $('revenue-content').style.display = '';
-  dataCache.revenue = true;
-  showProgress(0);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   BIDS TAB
-   ═══════════════════════════════════════════════════════════════ */
-async function loadBids() {
-  const { start, end } = getDateRange();
-  showProgress(10);
-
-  // Bid requests don't have reliable created dates matching bids, so fetch all with timing data
-  const [bids, bidRequests] = await Promise.all([
-    listRecords(TO_BASE, T_BIDS, {
-      filterByFormula: dateFormula(F_BID_CREATED, start, end),
-      fields: [F_BID_ID, F_BID_STATUS, F_BID_DETAIL_STATUS, F_BID_CREATED, F_BID_COMPLETE_DATE, F_BID_ACCOUNT, F_BID_ACCOUNT_OWNER, F_BID_ACCOUNT_TYPE, F_BID_LINE_ITEMS, F_BID_POPUP]
-    }),
-    listRecords(TO_BASE, T_BID_REQUESTS, {
-      filterByFormula: `OR(${[F_BR_MIN_SUBMITTED, F_BR_MIN_IN_PROGRESS, F_BR_MIN_OPEN, F_BR_MIN_READY_FULFILL, F_BR_MIN_FULFILLED].map(f => `{${f}}>0`).join(',')})`,
-      fields: [F_BR_CREATED, F_BR_MIN_SUBMITTED, F_BR_MIN_PENDING_CS, F_BR_MIN_PENDING_SE, F_BR_MIN_IN_PROGRESS, F_BR_MIN_BID_CREATED, F_BR_MIN_OPEN, F_BR_MIN_READY_FULFILL, F_BR_MIN_FULFILLED, F_BR_MIN_FLAGGED, F_BR_ACCOUNT_NAME, F_BR_ACCOUNT_OWNER]
-    })
-  ]);
-  showProgress(65);
-
-  // Status distribution
-  const statusCounts = {};
-  const statusColors = { 'Pipeline': '#94a3b8', 'Submitted': '#a78bfa', 'Open': '#60a5fa', 'Working': '#818cf8', 'Awaiting Customer Response': '#f59e0b', 'Revisions Needed': '#f87171', 'Committed': '#8b5cf6', 'Ready for Pop Up': '#22d3ee', 'Open Popup': '#06b6d4', 'Ready for Fulfillment': '#2dd4bf', 'Fulfilled': '#06b6d4', 'Payment Needed': '#fb923c', 'Awaiting Payment': '#fbbf24', 'Missing INVP': '#f97316', 'Fulfillment Issue': '#ef4444', 'Ready for Review': '#a3e635', 'Done': '#10b981', 'Archived': '#cbd5e1', 'Void': '#e2e8f0', 'Lost': '#9ca3af', 'Save for Later': '#d1d5db', 'Missing Info': '#fca5a5' };
-  const ownerCounts = {};
-  const monthlyBids = {};
-  let completedCount = 0, totalDaysToComplete = 0;
-  let inFulfillment = 0;
-  const now = new Date();
-
-  bids.forEach(r => {
-    const f = r.fields;
-    const status = fv(f, F_BID_STATUS) || 'Unknown';
-    statusCounts[status] = (statusCounts[status] || 0) + 1;
-
-    const owner = fv(f, F_BID_ACCOUNT_OWNER) || 'Unassigned';
-    ownerCounts[owner] = (ownerCounts[owner] || 0) + 1;
-
-    const created = fv(f, F_BID_CREATED);
-    if (created) {
-      const mk = monthKey(created);
-      monthlyBids[mk] = (monthlyBids[mk] || 0) + 1;
-    }
-
-    if (status === 'Done' || status === 'Archived') {
-      const complete = fv(f, F_BID_COMPLETE_DATE) || fv(f, F_BID_CREATED);
-      if (created && complete) {
-        completedCount++;
-        totalDaysToComplete += daysBetween(created, complete);
-      }
-    }
-
-    if (['Ready for Fulfillment', 'Fulfilled', 'Open Popup', 'Fulfillment Issue'].includes(status)) {
-      inFulfillment++;
-    }
-  });
-
-  // Timing averages from bid requests
-  const timingFields = [
-    { id: F_BR_MIN_SUBMITTED, label: 'Submitted' },
-    { id: F_BR_MIN_PENDING_CS, label: 'Pending CS' },
-    { id: F_BR_MIN_PENDING_SE, label: 'Pending SE' },
-    { id: F_BR_MIN_IN_PROGRESS, label: 'In Progress' },
-    { id: F_BR_MIN_BID_CREATED, label: 'Bid Created' },
-    { id: F_BR_MIN_OPEN, label: 'Open' },
-    { id: F_BR_MIN_READY_FULFILL, label: 'Ready for Fulfillment' },
-    { id: F_BR_MIN_FULFILLED, label: 'Fulfilled' },
-  ];
-  const timingAvgs = timingFields.map(tf => {
-    let sum = 0, count = 0;
-    bidRequests.forEach(r => {
-      const v = fvNum(r.fields, tf.id);
-      if (v > 0) { sum += v; count++; }
-    });
-    return { label: tf.label, avgHours: count > 0 ? (sum / count / 60) : 0 };
-  }).filter(t => t.avgHours > 0);
-
-  const activeBids = bids.filter(r => !['Done', 'Archived', 'Void'].includes(fv(r.fields, F_BID_STATUS)));
-  const avgAge = activeBids.length > 0 ? activeBids.reduce((sum, r) => sum + daysBetween(fv(r.fields, F_BID_CREATED), now), 0) / activeBids.length : 0;
-
-  showProgress(85);
-
-  // Render
+/* ── Bids ────────────────────────────────────────────────────── */
+function renderBids(d) {
   renderMetrics('bids-metrics', [
-    { label: 'Total Bids (Period)', value: fmtN(bids.length) },
-    { label: 'Active Pipeline', value: fmtN(activeBids.length), small: true },
-    { label: 'In Fulfillment', value: fmtN(inFulfillment), small: true },
-    { label: 'Avg Days to Complete', value: completedCount > 0 ? Math.round(totalDaysToComplete / completedCount) + 'd' : 'N/A', small: true },
-    { label: 'Avg Pipeline Age', value: Math.round(avgAge) + ' days', small: true },
-    { label: 'Completed', value: fmtN(completedCount), sub: `${fmtPct(bids.length ? (completedCount / bids.length) * 100 : 0)} completion rate` }
+    { label: 'Total Bids (YTD)', value: fmtN(d.totalBids) },
+    { label: 'Active Pipeline', value: fmtN(d.activePipeline), small: true },
+    { label: 'In Fulfillment', value: fmtN(d.inFulfillment), small: true },
+    { label: 'Avg Days to Complete', value: d.avgDaysToComplete ? d.avgDaysToComplete + 'd' : 'N/A', small: true },
+    { label: 'Avg Pipeline Age', value: d.avgPipelineAge + ' days', small: true },
+    { label: 'Completed', value: fmtN(d.completedCount), sub: `${d.completionRate}% completion rate` }
   ]);
 
-  // Status chart
-  const statKeys = Object.keys(statusCounts).sort((a, b) => statusCounts[b] - statusCounts[a]);
-  makeChart('chart-bids-status', {
-    type: 'doughnut',
-    data: {
-      labels: statKeys,
-      datasets: [{ data: statKeys.map(s => statusCounts[s]), backgroundColor: statKeys.map(s => statusColors[s] || '#94a3b8'), borderWidth: 0 }]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } }, cutout: '50%' }
-  });
+  const statKeys = Object.keys(d.statusCounts || {});
+  makeChart('chart-bids-status', { type: 'doughnut', data: { labels: statKeys, datasets: [{ data: statKeys.map(s => d.statusCounts[s]), backgroundColor: statKeys.map(s => STATUS_COLORS[s] || '#94a3b8'), borderWidth: 0 }] }, options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } }, cutout: '50%' } });
 
-  // Time in status chart
-  const timingLabels = timingAvgs.map(t => t.label);
-  const timingValues = timingAvgs.map(t => Math.round(t.avgHours * 10) / 10);
-  makeChart('chart-bids-time', {
-    type: 'bar',
-    data: {
-      labels: timingLabels,
-      datasets: [{ label: 'Avg Hours', data: timingValues, backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .5 }]
-    },
-    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } }
-  });
+  const ta = d.timingAvgs || [];
+  makeChart('chart-bids-time', { type: 'bar', data: { labels: ta.map(t => t.label), datasets: [{ label: 'Avg Hours', data: ta.map(t => t.avgHours), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .5 }] }, options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } } });
 
-  // Monthly bid trend
-  const bidMonths = Object.keys(monthlyBids).sort();
-  makeChart('chart-bids-trend', {
-    type: 'line',
-    data: {
-      labels: bidMonths.map(monthLabel),
-      datasets: [{
-        label: 'Bids Created', data: bidMonths.map(m => monthlyBids[m]),
-        borderColor: '#00C8FF', backgroundColor: 'rgba(0,200,255,.1)',
-        fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#00C8FF'
-      }]
-    },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-  });
+  const bMonths = Object.keys(d.monthlyBids || {}).sort();
+  makeChart('chart-bids-trend', { type: 'line', data: { labels: d.monthLabels || bMonths.map(monthLabel), datasets: [{ label: 'Bids Created', data: bMonths.map(m => d.monthlyBids[m]), borderColor: '#00C8FF', backgroundColor: 'rgba(0,200,255,.1)', fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#00C8FF' }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // Owner chart
-  const ownerKeys = Object.keys(ownerCounts).sort((a, b) => ownerCounts[b] - ownerCounts[a]).slice(0, 8);
+  const ownerKeys = Object.keys(d.ownerCounts || {}).slice(0, 8);
   const ownerColors = ['#00C8FF', '#e8531d', '#8b5cf6', '#059669', '#d97706', '#ec4899', '#3b82f6', '#94a3b8'];
-  makeChart('chart-bids-owner', {
-    type: 'bar',
-    data: {
-      labels: ownerKeys,
-      datasets: [{ label: 'Bids', data: ownerKeys.map(o => ownerCounts[o]), backgroundColor: ownerColors, borderRadius: 6, barPercentage: .5 }]
-    },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-  });
+  makeChart('chart-bids-owner', { type: 'bar', data: { labels: ownerKeys, datasets: [{ label: 'Bids', data: ownerKeys.map(o => d.ownerCounts[o]), backgroundColor: ownerColors, borderRadius: 6, barPercentage: .5 }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // Fulfillment metrics card
-  $('bids-fulfillment-wrap').innerHTML = `
-    <div class="chart-card">
-      <div class="chart-title">Fulfillment Snapshot</div>
-      <div class="metric-grid" style="margin-bottom:0">
-        ${['Ready for Fulfillment', 'Open Popup', 'Fulfilled', 'Fulfillment Issue', 'Payment Needed'].map(s => `
-          <div class="metric-card" style="border-left:3px solid ${statusColors[s]}">
-            <div class="metric-label">${s}</div>
-            <div class="metric-value small">${fmtN(statusCounts[s] || 0)}</div>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
+  const fs = d.fulfillmentSnapshot || {};
+  $('bids-fulfillment-wrap').innerHTML = `<div class="chart-card"><div class="chart-title">Fulfillment Snapshot</div><div class="metric-grid" style="margin-bottom:0">${Object.entries(fs).map(([s, c]) => `<div class="metric-card" style="border-left:3px solid ${STATUS_COLORS[s] || '#94a3b8'}"><div class="metric-label">${s}</div><div class="metric-value small">${fmtN(c)}</div></div>`).join('')}</div></div>`;
 
-  // Bids table
-  const bidRows = bids
-    .sort((a, b) => new Date(fv(b.fields, F_BID_CREATED)) - new Date(fv(a.fields, F_BID_CREATED)))
-    .map(r => {
-      const f = r.fields;
-      const status = fv(f, F_BID_STATUS);
-      const pillClass = { 'Done': 'pill-green', 'Fulfilled': 'pill-cyan', 'Open Popup': 'pill-cyan', 'Ready for Fulfillment': 'pill-blue', 'Payment Needed': 'pill-amber', 'Awaiting Payment': 'pill-amber', 'Awaiting Customer Response': 'pill-amber', 'Fulfillment Issue': 'pill-red', 'Revisions Needed': 'pill-red', 'Archived': 'pill-gray', 'Void': 'pill-gray', 'Lost': 'pill-gray', 'Pipeline': 'pill-gray', 'Submitted': 'pill-purple' }[status] || 'pill-blue';
-      return [
-        fv(f, F_BID_ID),
-        fv(f, F_BID_ACCOUNT) || '-',
-        `<span class="pill ${pillClass}">${status}</span>`,
-        fv(f, F_BID_ACCOUNT_OWNER) || '-',
-        fv(f, F_BID_CREATED) ? new Date(fv(f, F_BID_CREATED)).toLocaleDateString() : '-',
-        fv(f, F_BID_COMPLETE_DATE) ? new Date(fv(f, F_BID_COMPLETE_DATE)).toLocaleDateString() : '-',
-        fv(f, F_BID_CREATED) ? daysBetween(fv(f, F_BID_CREATED), fv(f, F_BID_COMPLETE_DATE) || new Date()) + 'd' : '-'
-      ];
-    });
-  renderTable('bids-table-wrap', 'Bid Detail', ['Bid ID', 'Account', 'Status', 'Owner', 'Created', 'Completed', 'Age'], bidRows);
-
+  if (d.bidRows) renderTable('bids-table-wrap', 'Bid Detail', ['Bid ID', 'Account', 'Status', 'Owner', 'Created', 'Completed'],
+    d.bidRows.map(r => [r[0], r[1], `<span class="pill ${PILL_MAP[r[2]] || 'pill-blue'}">${r[2]}</span>`, r[3], r[4], r[5]]));
   $('bids-loading').style.display = 'none';
   $('bids-content').style.display = '';
-  dataCache.bids = true;
-  showProgress(0);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   LEDGER HYGIENE TAB
-   ═══════════════════════════════════════════════════════════════ */
-async function loadLedger() {
-  showProgress(10);
-
-  // Fetch supplier orders only (SO-level actualization). SOI detail is in the dedicated tool.
-  // Use 6-month lookback for fast load; dedicated actualization tool has full history.
-  const lookback = new Date();
-  lookback.setMonth(lookback.getMonth() - 6);
-  const lbDate = lookback.toISOString().split('T')[0];
-
-  const supplierOrders = await listRecords(SL_BASE, T_SL_SO, {
-    filterByFormula: `IS_AFTER({${F_SO_CREATED}}, '${lbDate}')`,
-    fields: [F_SO_SUPPLIER, F_SO_ACTUALS_ADDED, F_SO_CREATED, F_SO_SOI]
-  });
-  showProgress(60);
-
-  // Actualization by vendor (from supplier orders)
-  const vendorStats = {};
-  supplierOrders.forEach(r => {
-    const f = r.fields;
-    const vendor = fv(f, F_SO_SUPPLIER) || 'Unknown';
-    if (!vendorStats[vendor]) vendorStats[vendor] = { total: 0, actualized: 0 };
-    vendorStats[vendor].total++;
-    if (f[F_SO_ACTUALS_ADDED]) vendorStats[vendor].actualized++;
-  });
-
-  // Missing: SOs with no SOIs linked
-  const missingSOs = supplierOrders.filter(r => {
-    const sois = r.fields[F_SO_SOI];
-    return !sois || (Array.isArray(sois) && sois.length === 0);
-  });
-
-  // Monthly actualization trend
-  const monthlyActualization = {};
-  supplierOrders.forEach(r => {
-    const f = r.fields;
-    const created = fv(f, F_SO_CREATED);
-    if (!created) return;
-    const mk = monthKey(created);
-    if (!monthlyActualization[mk]) monthlyActualization[mk] = { total: 0, actualized: 0 };
-    monthlyActualization[mk].total++;
-    if (f[F_SO_ACTUALS_ADDED]) monthlyActualization[mk].actualized++;
-  });
-
-  const totalActualized = supplierOrders.filter(r => r.fields[F_SO_ACTUALS_ADDED]).length;
-  const soActPct = supplierOrders.length > 0 ? (totalActualized / supplierOrders.length) * 100 : 0;
-
-  showProgress(85);
-
+/* ── Ledger Hygiene ──────────────────────────────────────────── */
+function renderLedger(d) {
   renderMetrics('ledger-metrics', [
-    { label: 'SO Actualization (6mo)', value: fmtPct(soActPct), sub: `${fmtN(totalActualized)} / ${fmtN(supplierOrders.length)} orders` },
-    { label: 'Unactualized SOs', value: fmtN(supplierOrders.length - totalActualized), sub: `<span class="${soActPct >= 80 ? 'up' : 'down'}">${fmtPct(100 - soActPct)} remaining</span>` },
-    { label: 'Empty SOs (No SOIs)', value: fmtN(missingSOs.length), sub: 'SOs with no line items linked' },
-    { label: 'Total SOs (6mo)', value: fmtN(supplierOrders.length) },
-    { label: 'Vendors Tracked', value: fmtN(Object.keys(vendorStats).length) }
+    { label: 'SO Actualization (6mo)', value: fmtPct(d.actualizationPct), sub: `${fmtN(d.actualized)} / ${fmtN(d.totalSOs)} orders` },
+    { label: 'Unactualized SOs', value: fmtN(d.totalSOs - d.actualized), sub: `<span class="${d.actualizationPct >= 80 ? 'up' : 'down'}">${fmtPct(100 - d.actualizationPct)} remaining</span>` },
+    { label: 'Empty SOs (No SOIs)', value: fmtN(d.emptySOs) },
+    { label: 'Total SOs (6mo)', value: fmtN(d.totalSOs) },
+    { label: 'Vendors Tracked', value: fmtN(d.vendorCount) }
   ]);
 
-  // Vendor actualization chart (SO-level)
-  const vendors = Object.entries(vendorStats).sort((a, b) => b[1].total - a[1].total).slice(0, 12);
-  makeChart('chart-ledger-vendor', {
-    type: 'bar',
-    data: {
-      labels: vendors.map(([v]) => v.length > 18 ? v.slice(0, 16) + '...' : v),
-      datasets: [
-        { label: 'Actualized', data: vendors.map(([, d]) => d.actualized), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 4, barPercentage: .6 },
-        { label: 'Not Actualized', data: vendors.map(([, d]) => d.total - d.actualized), backgroundColor: 'rgba(239,68,68,.5)', borderRadius: 4, barPercentage: .6 }
-      ]
-    },
-    options: {
-      responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } },
-      scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, grid: { color: '#f1f5f9' } } }
-    }
-  });
+  const vr = d.vendorRows || [];
+  const top12 = vr.slice(0, 12);
+  makeChart('chart-ledger-vendor', { type: 'bar', data: { labels: top12.map(r => r[0].length > 18 ? r[0].slice(0, 16) + '...' : r[0]), datasets: [
+    { label: 'Actualized', data: top12.map(r => r[2]), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 4, barPercentage: .6 },
+    { label: 'Not Actualized', data: top12.map(r => r[3]), backgroundColor: 'rgba(239,68,68,.5)', borderRadius: 4, barPercentage: .6 }
+  ] }, options: { responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, grid: { color: '#f1f5f9' } } } } });
 
-  // Monthly trend
-  const actMonths = Object.keys(monthlyActualization).sort().slice(-12);
-  makeChart('chart-ledger-trend', {
-    type: 'line',
-    data: {
-      labels: actMonths.map(monthLabel),
-      datasets: [{
-        label: 'Actualization %', data: actMonths.map(m => {
-          const d = monthlyActualization[m];
-          return d.total > 0 ? Math.round((d.actualized / d.total) * 1000) / 10 : 0;
-        }),
-        borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.1)',
-        fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#10b981'
-      }]
-    },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-  });
+  const actMonths = Object.keys(d.monthlyActualization || {}).sort().slice(-12);
+  makeChart('chart-ledger-trend', { type: 'line', data: { labels: actMonths.map(monthLabel), datasets: [{ label: 'Actualization %', data: actMonths.map(m => d.monthlyActualization[m]?.pct || 0), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.1)', fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#10b981' }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // Vendor table
-  const vendorRows = Object.entries(vendorStats)
-    .sort((a, b) => b[1].total - a[1].total)
-    .map(([v, d]) => {
-      const pct = d.total > 0 ? (d.actualized / d.total) * 100 : 0;
-      const pillClass = pct >= 90 ? 'pill-green' : pct >= 50 ? 'pill-amber' : 'pill-red';
-      return [v, fmtN(d.total), fmtN(d.actualized), fmtN(d.total - d.actualized), `<span class="pill ${pillClass}">${fmtPct(pct)}</span>`];
-    });
-  renderTable('ledger-vendor-table-wrap', 'Actualization by Vendor (Last 6 Months)', ['Vendor', 'Total SOs', 'Actualized', 'Remaining', 'Coverage'], vendorRows);
-
+  if (vr.length) renderTable('ledger-vendor-table-wrap', 'Actualization by Vendor (Last 6 Months)', ['Vendor', 'Total SOs', 'Actualized', 'Remaining', 'Coverage'],
+    vr.map(r => [r[0], fmtN(r[1]), fmtN(r[2]), fmtN(r[3]), `<span class="pill ${r[4] >= 90 ? 'pill-green' : r[4] >= 50 ? 'pill-amber' : 'pill-red'}">${fmtPct(r[4])}</span>`]));
   $('ledger-loading').style.display = 'none';
   $('ledger-content').style.display = '';
-  dataCache.ledger = true;
-  showProgress(0);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   REGISTRATION TAB
-   ═══════════════════════════════════════════════════════════════ */
-async function loadRegistration() {
-  const { start, end } = getDateRange();
-  showProgress(10);
-
-  // Fetch registration order items
-  const regItems = await listRecords(SL_BASE, T_SL_OI, {
-    filterByFormula: `AND({${F_OI_REG}}=TRUE(), {${F_OI_STATUS}}="Active", IS_AFTER({${F_OI_CREATED}}, '${start.toISOString().split('T')[0]}'), IS_BEFORE({${F_OI_CREATED}}, '${end.toISOString().split('T')[0]}'))`,
-    fields: [F_OI_RETAIL_PRICE, F_OI_QTY, F_OI_TITLE, F_OI_CREATED, F_OI_ORDERS]
-  });
-  showProgress(60);
-
-  let totalRevenue = 0, totalItems = 0;
-  const monthlyRev = {};
-  const titleRevenue = {};
-
-  regItems.forEach(r => {
-    const f = r.fields;
-    const price = fvNum(f, F_OI_RETAIL_PRICE);
-    const qty = fvNum(f, F_OI_QTY) || 1;
-    const rev = price * qty;
-    const title = fv(f, F_OI_TITLE) || 'Unknown';
-    const created = fv(f, F_OI_CREATED);
-
-    totalRevenue += rev;
-    totalItems++;
-
-    if (created) {
-      const mk = monthKey(created);
-      monthlyRev[mk] = (monthlyRev[mk] || 0) + rev;
-    }
-
-    if (!titleRevenue[title]) titleRevenue[title] = { revenue: 0, count: 0 };
-    titleRevenue[title].revenue += rev;
-    titleRevenue[title].count += qty;
-  });
-
-  const avgPerItem = totalItems > 0 ? totalRevenue / totalItems : 0;
-  showProgress(85);
-
+/* ── Registration ────────────────────────────────────────────── */
+function renderRegistration(d) {
   renderMetrics('registration-metrics', [
-    { label: 'Registration Revenue', value: fmt$(totalRevenue) },
-    { label: 'Registration Items', value: fmtN(totalItems) },
-    { label: 'Avg per Item', value: fmt$d(avgPerItem) },
-    { label: 'Active Months', value: fmtN(Object.keys(monthlyRev).length) }
+    { label: 'Registration Revenue', value: fmt$(d.totalRevenue) },
+    { label: 'Registration Items', value: fmtN(d.totalItems) },
+    { label: 'Avg per Item', value: fmt$d(d.avgPerItem) },
+    { label: 'Active Months', value: fmtN(d.activeMonths) }
   ]);
 
-  // Monthly chart
-  const months = Object.keys(monthlyRev).sort();
-  makeChart('chart-registration-monthly', {
-    type: 'bar',
-    data: {
-      labels: months.map(monthLabel),
-      datasets: [{ label: 'Registration Revenue', data: months.map(m => monthlyRev[m]), backgroundColor: 'rgba(139,92,246,.7)', borderRadius: 6, barPercentage: .5 }]
-    },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-  });
+  const months = Object.keys(d.monthly || {}).sort();
+  makeChart('chart-registration-monthly', { type: 'bar', data: { labels: d.monthLabels || months.map(monthLabel), datasets: [{ label: 'Registration Revenue', data: months.map(m => d.monthly[m]), backgroundColor: 'rgba(139,92,246,.7)', borderRadius: 6, barPercentage: .5 }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // Registration products table
-  const regRows = Object.entries(titleRevenue)
-    .sort((a, b) => b[1].revenue - a[1].revenue)
-    .map(([title, d]) => [title, fmtN(d.count), fmt$d(d.revenue), fmt$d(d.count > 0 ? d.revenue / d.count : 0)]);
-  renderTable('registration-table-wrap', 'Registration Products', ['Product', 'Quantity', 'Revenue', 'Avg Price'], regRows, { maxRows: 50 });
-
+  if (d.productRows) renderTable('registration-table-wrap', 'Registration Products', ['Product', 'Quantity', 'Revenue', 'Avg Price'],
+    d.productRows.map(r => [r[0], fmtN(r[1]), fmt$d(r[2]), fmt$d(r[3])]));
   $('registration-loading').style.display = 'none';
   $('registration-content').style.display = '';
-  dataCache.registration = true;
-  showProgress(0);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   RECEIVABLES TAB
-   ═══════════════════════════════════════════════════════════════ */
-async function loadReceivables() {
-  showProgress(10);
-
-  const invr = await listRecords(TO_BASE, T_INVR, {
-    filterByFormula: `{${F_INVR_STATUS}}="Open"`,
-    fields: [F_INVR_ID, F_INVR_AMOUNT_DUE, F_INVR_AMOUNT_PAID, F_INVR_DUE_DATE, F_INVR_CREATED, F_INVR_ACCOUNT, F_INVR_ACCOUNT_OWNER, F_INVR_STORE_ID]
-  });
-  showProgress(60);
-
-  let totalDue = 0;
-  const aging = { 'Current': 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
-  const agingCount = { 'Current': 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
-  const ownerTotals = {};
-
-  invr.forEach(r => {
-    const f = r.fields;
-    const amt = fvNum(f, F_INVR_AMOUNT_DUE);
-    totalDue += amt;
-
-    const bucket = agingBucket(fv(f, F_INVR_DUE_DATE));
-    aging[bucket] = (aging[bucket] || 0) + amt;
-    agingCount[bucket] = (agingCount[bucket] || 0) + 1;
-
-    const owner = fv(f, F_INVR_ACCOUNT_OWNER) || 'Unassigned';
-    if (!ownerTotals[owner]) ownerTotals[owner] = { amount: 0, count: 0 };
-    ownerTotals[owner].amount += amt;
-    ownerTotals[owner].count++;
-  });
-
-  const pastDue = totalDue - (aging['Current'] || 0);
-  const avgDue = invr.length > 0 ? totalDue / invr.length : 0;
-  showProgress(85);
-
+/* ── Receivables ─────────────────────────────────────────────── */
+function renderReceivables(d) {
   renderMetrics('receivables-metrics', [
-    { label: 'Total Unpaid', value: fmt$(totalDue), sub: `${fmtN(invr.length)} invoices` },
-    { label: 'Past Due', value: fmt$(pastDue), sub: `<span class="${pastDue > 0 ? 'down' : 'up'}">${fmtN(invr.length - (agingCount['Current'] || 0))} invoices</span>` },
-    { label: 'Avg Invoice', value: fmt$d(avgDue), small: true },
-    { label: 'Current (Not Due)', value: fmt$(aging['Current'] || 0), sub: `${fmtN(agingCount['Current'] || 0)} invoices` },
-    { label: '90+ Days', value: fmt$(aging['90+'] || 0), sub: `<span class="down">${fmtN(agingCount['90+'] || 0)} invoices</span>` }
+    { label: 'Total Unpaid', value: fmt$(d.totalUnpaid), sub: `${fmtN(d.invoiceCount)} invoices` },
+    { label: 'Past Due', value: fmt$(d.pastDue), sub: `<span class="${d.pastDue > 0 ? 'down' : 'up'}">${fmtN(d.invoiceCount - (d.agingCount?.Current || 0))} invoices</span>` },
+    { label: 'Avg Invoice', value: fmt$d(d.avgInvoice), small: true },
+    { label: 'Current (Not Due)', value: fmt$(d.aging?.Current || 0), sub: `${fmtN(d.agingCount?.Current || 0)} invoices` },
+    { label: '90+ Days', value: fmt$(d.aging?.['90+'] || 0), sub: `<span class="down">${fmtN(d.agingCount?.['90+'] || 0)} invoices</span>` }
   ]);
 
-  // Aging doughnut
-  const bucketLabels = ['Current', '1-30', '31-60', '61-90', '90+'];
-  const bucketColors = ['#34d399', '#60a5fa', '#f59e0b', '#f97316', '#ef4444'];
-  makeChart('chart-receivables-aging', {
-    type: 'doughnut',
-    data: {
-      labels: bucketLabels.map(b => b === 'Current' ? 'Current' : b + ' days'),
-      datasets: [{ data: bucketLabels.map(b => aging[b] || 0), backgroundColor: bucketColors, borderWidth: 0 }]
-    },
-    options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 12 } } } }, cutout: '55%' }
-  });
+  const aging = d.aging || {};
+  makeChart('chart-receivables-aging', { type: 'doughnut', data: { labels: BUCKET_LABELS.map(b => b === 'Current' ? 'Current' : b + ' days'), datasets: [{ data: BUCKET_LABELS.map(b => aging[b] || 0), backgroundColor: BUCKET_COLORS, borderWidth: 0 }] }, options: { responsive: true, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 12 } } } }, cutout: '55%' } });
 
-  // Owner chart
-  const owners = Object.entries(ownerTotals).sort((a, b) => b[1].amount - a[1].amount);
-  makeChart('chart-receivables-owner', {
-    type: 'bar',
-    data: {
-      labels: owners.map(([o]) => o),
-      datasets: [{ label: 'Amount Due', data: owners.map(([, d]) => d.amount), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .5 }]
-    },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-  });
+  const owners = Object.entries(d.ownerTotals || {});
+  makeChart('chart-receivables-owner', { type: 'bar', data: { labels: owners.map(([o]) => o), datasets: [{ label: 'Amount Due', data: owners.map(([, v]) => v.amount), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 6, barPercentage: .5 }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // Detail table
-  const invrRows = invr
-    .sort((a, b) => fvNum(b.fields, F_INVR_AMOUNT_DUE) - fvNum(a.fields, F_INVR_AMOUNT_DUE))
-    .map(r => {
-      const f = r.fields;
-      const due = fv(f, F_INVR_DUE_DATE);
-      const bucket = agingBucket(due);
-      const pillClass = { 'Current': 'pill-green', '1-30': 'pill-blue', '31-60': 'pill-amber', '61-90': 'pill-red', '90+': 'pill-red' }[bucket] || 'pill-gray';
-      return [
-        fv(f, F_INVR_ID),
-        fv(f, F_INVR_ACCOUNT) || '-',
-        fv(f, F_INVR_ACCOUNT_OWNER) || '-',
-        fmt$d(fvNum(f, F_INVR_AMOUNT_DUE)),
-        due ? new Date(due).toLocaleDateString() : '-',
-        `<span class="pill ${pillClass}">${bucket === 'Current' ? 'Current' : bucket + ' days'}</span>`,
-        fv(f, F_INVR_CREATED) ? new Date(fv(f, F_INVR_CREATED)).toLocaleDateString() : '-'
-      ];
-    });
-  renderTable('receivables-table-wrap', 'Unpaid Invoices', ['Invoice', 'Account', 'Owner', 'Amount Due', 'Due Date', 'Aging', 'Created'], invrRows);
-
+  if (d.rows) renderTable('receivables-table-wrap', 'Unpaid Invoices', ['Invoice', 'Account', 'Owner', 'Amount Due', 'Due Date', 'Aging', 'Created'],
+    d.rows.map(r => [r[0], r[1], r[2], fmt$d(r[3]), r[4], `<span class="pill ${{'Current':'pill-green','1-30':'pill-blue','31-60':'pill-amber','61-90':'pill-red','90+':'pill-red'}[r[5]] || 'pill-gray'}">${r[5] === 'Current' ? 'Current' : r[5] + ' days'}</span>`, r[6]]));
   $('receivables-loading').style.display = 'none';
   $('receivables-content').style.display = '';
-  dataCache.receivables = true;
-  showProgress(0);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   CASH FLOW TAB
-   ═══════════════════════════════════════════════════════════════ */
-async function loadCashFlow() {
-  showProgress(10);
-
-  const [invr, invp, paidInvr, paidInvp] = await Promise.all([
-    listRecords(TO_BASE, T_INVR, {
-      filterByFormula: `{${F_INVR_STATUS}}="Open"`,
-      fields: [F_INVR_AMOUNT_DUE, F_INVR_DUE_DATE, F_INVR_ACCOUNT]
-    }),
-    listRecords(TO_BASE, T_INVP, {
-      filterByFormula: `OR({${F_INVP_STATUS}}="Open",{${F_INVP_STATUS}}="Pending")`,
-      fields: [F_INVP_AMOUNT, F_INVP_DUE_DATE, F_INVP_VENDOR]
-    }),
-    listRecords(TO_BASE, T_INVR, {
-      filterByFormula: `AND({${F_INVR_STATUS}}="Paid", IS_AFTER({${F_INVR_PAID_DATE}}, '2025-01-01'))`,
-      fields: [F_INVR_AMOUNT_PAID, F_INVR_PAID_DATE]
-    }),
-    listRecords(TO_BASE, T_INVP, {
-      filterByFormula: `AND({${F_INVP_STATUS}}="Paid", IS_AFTER({${F_INVP_PAID_DATE}}, '2025-01-01'))`,
-      fields: [F_INVP_AMOUNT, F_INVP_PAID_DATE]
-    })
-  ]);
-  showProgress(65);
-
-  let totalAR = 0, totalAP = 0;
-  invr.forEach(r => { totalAR += fvNum(r.fields, F_INVR_AMOUNT_DUE); });
-  invp.forEach(r => { totalAP += fvNum(r.fields, F_INVP_AMOUNT); });
-
-  // Monthly paid collections and disbursements
-  const monthlyAR = {}, monthlyAP = {};
-  paidInvr.forEach(r => {
-    const d = fv(r.fields, F_INVR_PAID_DATE);
-    if (!d) return;
-    const mk = monthKey(d);
-    monthlyAR[mk] = (monthlyAR[mk] || 0) + fvNum(r.fields, F_INVR_AMOUNT_PAID);
-  });
-  paidInvp.forEach(r => {
-    const d = fv(r.fields, F_INVP_PAID_DATE);
-    if (!d) return;
-    const mk = monthKey(d);
-    monthlyAP[mk] = (monthlyAP[mk] || 0) + fvNum(r.fields, F_INVP_AMOUNT);
-  });
-
-  // AR due by month
-  const arByMonth = {};
-  invr.forEach(r => {
-    const d = fv(r.fields, F_INVR_DUE_DATE);
-    const mk = d ? monthKey(d) : 'Overdue';
-    arByMonth[mk] = (arByMonth[mk] || 0) + fvNum(r.fields, F_INVR_AMOUNT_DUE);
-  });
-
-  // AP due by month
-  const apByMonth = {};
-  invp.forEach(r => {
-    const d = fv(r.fields, F_INVP_DUE_DATE);
-    const mk = d ? monthKey(d) : 'No Date';
-    apByMonth[mk] = (apByMonth[mk] || 0) + fvNum(r.fields, F_INVP_AMOUNT);
-  });
-
-  const netPosition = totalAR - totalAP;
-  showProgress(85);
-
+/* ── Cash Flow ───────────────────────────────────────────────── */
+function renderCashFlow(d) {
+  const net = d.netPosition;
   renderMetrics('cashflow-metrics', [
-    { label: 'Outstanding AR', value: fmt$(totalAR), sub: `${fmtN(invr.length)} invoices receivable` },
-    { label: 'Outstanding AP', value: fmt$(totalAP), sub: `${fmtN(invp.length)} invoices payable` },
-    { label: 'Net Position', value: (netPosition >= 0 ? '' : '-') + fmt$(netPosition), sub: `<span class="${netPosition >= 0 ? 'up' : 'down'}">${netPosition >= 0 ? 'Positive' : 'Negative'} cash flow</span>` },
-    { label: 'AR / AP Ratio', value: totalAP > 0 ? (totalAR / totalAP).toFixed(2) + 'x' : 'N/A', sub: totalAR > totalAP ? '<span class="up">Healthy</span>' : '<span class="down">Watch</span>' }
+    { label: 'Outstanding AR', value: fmt$(d.totalAR), sub: `${fmtN(d.arCount)} invoices receivable` },
+    { label: 'Outstanding AP', value: fmt$(d.totalAP), sub: `${fmtN(d.apCount)} invoices payable` },
+    { label: 'Net Position', value: (net >= 0 ? '' : '-') + fmt$(net), sub: `<span class="${net >= 0 ? 'up' : 'down'}">${net >= 0 ? 'Positive' : 'Negative'} cash flow</span>` },
+    { label: 'AR / AP Ratio', value: d.arApRatio ? d.arApRatio + 'x' : 'N/A', sub: d.totalAR > d.totalAP ? '<span class="up">Healthy</span>' : '<span class="down">Watch</span>' }
   ]);
 
-  // AR vs AP monthly trend (paid)
-  const allMonths = [...new Set([...Object.keys(monthlyAR), ...Object.keys(monthlyAP)])].sort().slice(-12);
-  makeChart('chart-cashflow-arap', {
-    type: 'bar',
-    data: {
-      labels: allMonths.map(monthLabel),
-      datasets: [
-        { label: 'Collections (AR Paid)', data: allMonths.map(m => monthlyAR[m] || 0), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 4, barPercentage: .6 },
-        { label: 'Disbursements (AP Paid)', data: allMonths.map(m => monthlyAP[m] || 0), backgroundColor: 'rgba(239,68,68,.5)', borderRadius: 4, barPercentage: .6 }
-      ]
-    },
-    options: {
-      responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } },
-      scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
-    }
-  });
+  const months = Object.keys(d.monthlyCollections || {}).sort().slice(-12);
+  makeChart('chart-cashflow-arap', { type: 'bar', data: { labels: d.monthLabels || months.map(monthLabel), datasets: [
+    { label: 'Collections', data: months.map(m => d.monthlyCollections?.[m] || 0), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 4, barPercentage: .6 },
+    { label: 'Disbursements', data: months.map(m => d.monthlyDisbursements?.[m] || 0), backgroundColor: 'rgba(239,68,68,.5)', borderRadius: 4, barPercentage: .6 }
+  ] }, options: { responsive: true, plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // Net cash by month
-  makeChart('chart-cashflow-net', {
-    type: 'line',
-    data: {
-      labels: allMonths.map(monthLabel),
-      datasets: [{
-        label: 'Net (Collections - Disbursements)',
-        data: allMonths.map(m => (monthlyAR[m] || 0) - (monthlyAP[m] || 0)),
-        borderColor: '#00C8FF', backgroundColor: 'rgba(0,200,255,.1)',
-        fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#00C8FF'
-      }]
-    },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-  });
+  makeChart('chart-cashflow-net', { type: 'line', data: { labels: d.monthLabels || months.map(monthLabel), datasets: [{ label: 'Net', data: months.map(m => (d.monthlyCollections?.[m] || 0) - (d.monthlyDisbursements?.[m] || 0)), borderColor: '#00C8FF', backgroundColor: 'rgba(0,200,255,.1)', fill: true, tension: .3, pointRadius: 4, pointBackgroundColor: '#00C8FF' }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
-  // Cash flow table
-  const cfRows = [];
-  const allDueMonths = [...new Set([...Object.keys(arByMonth), ...Object.keys(apByMonth)])].sort();
-  allDueMonths.forEach(mk => {
-    const ar = arByMonth[mk] || 0;
-    const ap = apByMonth[mk] || 0;
-    const net = ar - ap;
-    cfRows.push([mk === 'Overdue' || mk === 'No Date' ? mk : monthLabel(mk), fmt$d(ar), fmt$d(ap), `<span class="${net >= 0 ? 'up' : 'down'}" style="font-weight:600">${net >= 0 ? '' : '-'}${fmt$d(net)}</span>`]);
-  });
-  renderTable('cashflow-table-wrap', 'Cash Flow by Due Month', ['Period', 'AR Due', 'AP Due', 'Net'], cfRows);
-
+  const arM = d.arByMonth || {};
+  const apM = d.apByMonth || {};
+  const allDue = [...new Set([...Object.keys(arM), ...Object.keys(apM)])].sort();
+  renderTable('cashflow-table-wrap', 'Cash Flow by Due Month', ['Period', 'AR Due', 'AP Due', 'Net'],
+    allDue.map(mk => { const ar = arM[mk] || 0; const ap = apM[mk] || 0; const n = ar - ap; return [mk.includes('-') ? monthLabel(mk) : mk, fmt$d(ar), fmt$d(ap), `<span class="${n >= 0 ? 'up' : 'down'}" style="font-weight:600">${n >= 0 ? '' : '-'}${fmt$d(n)}</span>`]; }));
   $('cashflow-loading').style.display = 'none';
   $('cashflow-content').style.display = '';
-  dataCache.cashflow = true;
-  showProgress(0);
 }
 
 /* ═══════════════════════════════════════════════════════════════
