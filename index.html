@@ -322,14 +322,7 @@ tailwind.config = {
         <div id="summary-loading" class="loading-overlay"><div class="loading-spinner"></div><div class="loading-text">Loading dashboard data...</div></div>
         <div id="summary-content" style="display:none">
           <div class="metric-grid" id="summary-metrics"></div>
-          <div class="grid-2">
-            <div class="chart-card"><div class="chart-title"><span id="summary-period-label"></span> — Revenue Trend</div><div style="max-height:200px"><canvas id="chart-summary-revenue"></canvas></div></div>
-            <div class="chart-card"><div class="chart-title">Bid Pipeline by Status</div><div style="max-height:200px"><canvas id="chart-summary-pipeline"></canvas></div></div>
-          </div>
-          <div class="grid-2">
-            <div class="chart-card"><div class="chart-title">Receivables Aging</div><div style="max-height:200px"><canvas id="chart-summary-aging"></canvas></div></div>
-            <div class="chart-card"><div class="chart-title">Secondslide vs TC365</div><div style="max-height:200px"><canvas id="chart-summary-store"></canvas></div></div>
-          </div>
+          <div class="chart-card"><div class="chart-title"><span id="summary-period-label"></span> — Monthly Product Revenue</div><div style="max-height:220px"><canvas id="chart-summary-revenue"></canvas></div></div>
         </div>
       </div>
 
@@ -854,28 +847,42 @@ const PILL_MAP = { 'Done': 'pill-green', 'Fulfilled': 'pill-cyan', 'Open Popup':
 
 function renderSummary(d) {
   if ($('summary-period-label')) $('summary-period-label').textContent = d.periodLabel || 'YTD';
+  const fs = d.fulfillmentSnapshot || {};
   renderMetrics('summary-metrics', [
+    // Revenue
     { label: 'Total Product Revenue', value: fmt$(d.totalProductRevenue) },
-    { label: 'Secondslide Revenue', value: fmt$(d.ssRevenue) },
-    { label: 'TC365 Revenue', value: fmt$(d.tcRevenue) },
-    { label: 'Open Pipeline', value: fmtN(d.pipelineCount) + ' bids', small: true },
-    { label: 'Unpaid Receivables', value: fmt$(d.totalAR), sub: `${fmtN(d.arCount)} invoices`, small: true },
+    { label: 'SS Product Revenue', value: fmt$(d.ssRevenue) },
+    { label: 'TC365 Product Revenue', value: fmt$(d.tcRevenue) },
+    { label: 'SS Shopify', value: fmt$(d.ssShopify || 0) },
+    { label: 'SS Bids', value: fmt$(d.ssBids || 0) },
+    { label: 'TC365 Shopify', value: fmt$(d.tcShopify || 0) },
+    { label: 'TC365 Bids', value: fmt$(d.tcBids || 0) },
+    { label: 'Bid Refunds', value: fmt$(d.totalRefunds || 0) },
+    // Receivables
+    { label: 'Unpaid Receivables', value: fmt$(d.totalAR), sub: `${fmtN(d.arCount)} invoices` },
+    { label: 'Past Due', value: fmt$(d.pastDue || 0) },
+    // Bids
+    { label: 'Open Pipeline', value: fmtN(d.pipelineCount) + ' bids' },
+    { label: 'Total Bids (YTD)', value: fmtN(d.totalBidsYTD || 0) },
+    { label: 'In Fulfillment', value: fmtN(d.inFulfillment || 0) },
+    { label: 'Avg Time to Quote', value: (d.avgTimeToQuote || 0) + 'h', small: true },
+    // Fulfillment
+    ...Object.entries(fs).map(([g, c]) => ({ label: g, value: fmtN(c), small: true })),
+    // Ledger
+    { label: 'SO Actualization', value: fmtPct(d.actualizationPct || 0) },
+    { label: 'Unactualized SOs', value: fmtN(d.unactualized || 0), small: true },
+    // Registration
+    { label: 'Registration Revenue', value: fmt$(d.registrationRevenue || 0) },
+    { label: 'Live Registrations', value: fmtN(d.liveRegistrations || 0), small: true },
   ]);
 
+  // Single line chart — total product revenue per month with value labels
   const rm = d.revenueMonths || [];
-  makeChart('chart-summary-revenue', { type: 'bar', data: { labels: rm.map(m => m.label), datasets: [
-    { label: 'Secondslide', data: rm.map(m => m.ss), backgroundColor: 'rgba(0,200,255,.7)', borderRadius: 4, barPercentage: .6 },
-    { label: 'TC365', data: rm.map(m => m.tc), backgroundColor: 'rgba(232,83,29,.7)', borderRadius: 4, barPercentage: .6 }
-  ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 10, font: { size: 11 } } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } } } } });
-
-  const pfs = d.preFulfillmentStatuses || {};
-  const pfKeys = Object.keys(pfs);
-  makeChart('chart-summary-pipeline', { type: 'doughnut', data: { labels: pfKeys, datasets: [{ data: pfKeys.map(s => pfs[s]), backgroundColor: pfKeys.map(s => STATUS_COLORS[s] || '#94a3b8'), borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, padding: 6, font: { size: 10 } } } }, cutout: '55%' } });
-
-  const aging = d.aging || {};
-  makeChart('chart-summary-aging', { type: 'bar', data: { labels: BUCKET_LABELS.map(b => b === 'Current' ? 'Current' : b + ' days'), datasets: [{ data: BUCKET_LABELS.map(b => aging[b] || 0), backgroundColor: BUCKET_COLORS, borderRadius: 4, barPercentage: .6 }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } } });
-
-  makeChart('chart-summary-store', { type: 'doughnut', data: { labels: ['Secondslide', 'Team Connection 365'], datasets: [{ data: [d.ssRevenue, d.tcRevenue], backgroundColor: ['#00C8FF', '#e8531d'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, padding: 8, font: { size: 11 } } } }, cutout: '55%' } });
+  makeChart('chart-summary-revenue', { type: 'line', data: { labels: rm.map(m => m.label), datasets: [{
+    label: 'Total Product Revenue', data: rm.map(m => m.totalProduct),
+    borderColor: '#00C8FF', backgroundColor: 'rgba(0,200,255,.1)',
+    fill: true, tension: .3, pointRadius: 5, pointBackgroundColor: '#00C8FF'
+  }] }, plugins: [ChartDataLabels], options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', color: '#334155', font: { size: 10, weight: 600 }, formatter: v => '$' + (v / 1000).toFixed(0) + 'k' } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
   $('summary-loading').style.display = 'none';
   $('summary-content').style.display = '';
@@ -894,14 +901,16 @@ function renderRevenue(d) {
     { label: 'TC365 Shopify', value: fmt$(d.tcShopify || 0) },
     { label: 'TC365 Bids', value: fmt$(d.tcBids || 0) },
     { label: 'Bid Refunds', value: fmt$(d.totalRefunds) },
+    { label: 'Registration Revenue', value: fmt$(snapshot.registration?.totalRevenue || 0) },
     { label: 'Unpaid Receivables', value: fmt$(recv.totalUnpaid || 0), sub: `${fmtN(recv.invoiceCount || 0)} invoices` },
   ]);
 
   const rm = d.months || [];
-  makeChart('chart-revenue-monthly', { type: 'bar', data: { labels: rm.map(m => m.label), datasets: [
-    { label: 'Secondslide', data: rm.map(m => m.ss), backgroundColor: 'rgba(0,200,255,.8)', borderRadius: 4, barPercentage: .6 },
-    { label: 'TC365', data: rm.map(m => m.tc), backgroundColor: 'rgba(232,83,29,.8)', borderRadius: 4, barPercentage: .6 }
-  ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 10, font: { size: 11 } } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } } } } });
+  makeChart('chart-revenue-monthly', { type: 'line', data: { labels: rm.map(m => m.label), datasets: [{
+    label: 'Total Product Revenue', data: rm.map(m => m.totalProduct),
+    borderColor: '#00C8FF', backgroundColor: 'rgba(0,200,255,.1)',
+    fill: true, tension: .3, pointRadius: 5, pointBackgroundColor: '#00C8FF'
+  }] }, plugins: [ChartDataLabels], options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', color: '#334155', font: { size: 10, weight: 600 }, formatter: v => '$' + (v / 1000).toFixed(0) + 'k' } }, scales: { y: { ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } } });
 
   if (recv.rows) renderTable('revenue-invr-table-wrap', 'Unpaid Invoices', ['Invoice', 'Account', 'Status', 'Amount Due', 'Due Date', 'Aging', 'Created'],
     recv.rows.map(r => [r[0], r[1], `<span class="pill pill-amber">${r[2]}</span>`, fmt$d(r[3]), r[4], `<span class="pill ${{'Current':'pill-green','1-30':'pill-blue','31-60':'pill-amber','61-90':'pill-red','90+':'pill-red'}[r[5]] || 'pill-gray'}">${r[5] === 'Current' ? 'Current' : r[5] + ' days'}</span>`, r[6]]));
@@ -915,7 +924,7 @@ function renderBids(d) {
   if ($('bids-period-label')) $('bids-period-label').textContent = d.periodLabel || 'YTD';
   renderMetrics('bids-metrics', [
     { label: 'Total Bids (YTD)', value: fmtN(d.totalBids) },
-    { label: 'Active Pipeline', value: fmtN(d.activePipeline), small: true },
+    { label: 'Open Pipeline', value: fmtN(d.openPipeline), small: true },
     { label: 'In Fulfillment', value: fmtN(d.inFulfillment), small: true },
     { label: 'Avg Time to Quote', value: d.avgTimeToQuoteHrs ? d.avgTimeToQuoteHrs + 'h' : 'N/A', small: true },
     { label: 'Avg Pipeline Age', value: d.avgPipelineAge + ' days', small: true },
@@ -966,6 +975,7 @@ function renderLedger(d) {
 function renderRegistration(d) {
   if ($('reg-period-label')) $('reg-period-label').textContent = d.periodLabel || 'YTD';
   renderMetrics('registration-metrics', [
+    { label: 'Live Registrations', value: fmtN(d.liveRegistrations || 0), sub: 'Active Shopify products' },
     { label: 'Registration Revenue', value: fmt$(d.totalRevenue) },
     { label: 'Registration Items', value: fmtN(d.totalItems) },
     { label: 'Avg per Item', value: fmt$d(d.avgPerItem) },
